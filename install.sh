@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 
-gcc solaxd.c -o solaxd
+gcc solaxd.c -o solaxd -lmosquitto
 
 systemctl -q is-active solaxd  && { echo "ERROR: SolaXd service is still running. Please run \"sudo service solaxd stop\" to stop it."; exit 1; }
 [ "$(id -u)" -eq 0 ] || { echo "You need to be ROOT (sudo can be used)."; exit 1; }

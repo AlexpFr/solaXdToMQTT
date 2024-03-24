@@ -35,6 +35,7 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <mosquitto.h>
 
 /*** Defines ********************************************************************************************/
 
@@ -139,6 +140,8 @@ static uint8_t           solax_InverterSerialNumber[15] = "";
 static bool              solax_InverterOnline = false;
 static float             solax_QualityOfService = 0;
 static Solax_LiveData_t  solax_LiveData = {0};
+
+struct mosquitto * mosq;
 
 /*** Functions ******************************************************************************************/
 
@@ -418,8 +421,9 @@ Solax_ErrorQuery_t solax_SendQuery(const Solax_StateQuery_t stateQuery)
 Solax_ErrorQuery_t solax_ReceiveQuery(const Solax_StateQuery_t stateQuery, Solax_LiveData_t* liveData)
 {
     static Solax_Message_t rxMessage;
-    
+
     uint32_t value;
+    char publish_buff[6] = {0};
     Solax_ErrorQuery_t error;
         
     error = solax_RS485_Receive(&rxMessage);
@@ -434,7 +438,7 @@ Solax_ErrorQuery_t solax_ReceiveQuery(const Solax_StateQuery_t stateQuery, Solax
             if (error == ERR_NO_DATA)
             {
                 // Maybe the Solax-X1 inverter is offline (e.g. no sunlight);
-                DEBUG_MESSAGE("Solax: No broadcast response");
+            DEBUG_MESSAGE("Solax: No broadcast response");
             }
             else if (error == ERR_CRC_ERROR)
             {
@@ -491,64 +495,93 @@ Solax_ErrorQuery_t solax_ReceiveQuery(const Solax_StateQuery_t stateQuery, Solax
             }
             else
             {
-                value = (rxMessage.Data[0] << 8) | rxMessage.Data[1]; // Temperature [°C]
+                value = (rxMessage.Data[0] << 8) | rxMessage.Data[1]; // Temperature [ï¿½C]
                 liveData->Temperature = value;
                 DEBUG_MESSAGE("Solax: LiveData.Temperature: %.0f C", liveData->Temperature);
+                sprintf(publish_buff,"%.*f",6,value);
+                mosquitto_publish(mosq, NULL, "solax/Temperature", sizeof(publish_buff), publish_buff , 0, true);
                 
                 value = (rxMessage.Data[2] << 8) | rxMessage.Data[3]; // Energy Today [kWh]
                 liveData->Energy_Today = value * 0.1f;
                 DEBUG_MESSAGE("Solax: LiveData.Energy_Today: %.1f kWh", liveData->Energy_Today);
+                sprintf(publish_buff,"%.*f",6,value);
+                mosquitto_publish(mosq, NULL, "solax/energy_Today", sizeof(publish_buff), publish_buff , 0, true);
                 
                 value = (rxMessage.Data[4] << 8) | rxMessage.Data[5]; // PV1 Voltage [V]
                 liveData->DC1_Voltage = value * 0.1f;
                 DEBUG_MESSAGE("Solax: LiveData.DC1_Voltage: %.1f V", liveData->DC1_Voltage);
+                sprintf(publish_buff,"%.*f",6,value);
+                mosquitto_publish(mosq, NULL, "solax/DC1_Voltage", sizeof(publish_buff), publish_buff , 0, true);
                 
                 value = (rxMessage.Data[6] << 8) | rxMessage.Data[7]; // PV2 Voltage [V]
                 liveData->DC2_Voltage = value * 0.1f;
                 DEBUG_MESSAGE("Solax: LiveData.DC2_Voltage: %.1f V", liveData->DC2_Voltage);
+                sprintf(publish_buff,"%.*f",6,value);
+                mosquitto_publish(mosq, NULL, "solax/DC2_Voltage", sizeof(publish_buff), publish_buff , 0, true);
                 
                 value = (rxMessage.Data[8] << 8) | rxMessage.Data[9]; // PV1 Current [A]
                 liveData->DC1_Current = value * 0.1f;
                 DEBUG_MESSAGE("Solax: LiveData.DC1_Current: %.1f A", liveData->DC1_Current);
+                sprintf(publish_buff,"%.*f",6,value);
+                mosquitto_publish(mosq, NULL, "solax/DC1_Current", sizeof(publish_buff), publish_buff , 0, true);
                 
                 value = (rxMessage.Data[10] << 8) | rxMessage.Data[11]; // PV2 Current [A]
                 liveData->DC2_Current = value * 0.1f;
                 DEBUG_MESSAGE("Solax: LiveData.DC2_Current: %.1f A", liveData->DC2_Current);
+                sprintf(publish_buff,"%.*f",6,value);
+                mosquitto_publish(mosq, NULL, "solax/DC2_Current", sizeof(publish_buff), publish_buff , 0, true);
                 
                 value = (rxMessage.Data[12] << 8) | rxMessage.Data[13]; // AC Current [A]
                 liveData->AC_Current = value * 0.1f;
                 DEBUG_MESSAGE("Solax: LiveData.AC_Current: %.1f A", liveData->AC_Current);
+                sprintf(publish_buff,"%.*f",6,value);
+                mosquitto_publish(mosq, NULL, "solax/AC_Current", sizeof(publish_buff), publish_buff , 0, true);
                 
                 value = (rxMessage.Data[14] << 8) | rxMessage.Data[15]; // AC Voltage [V]
                 liveData->AC_Voltage = value * 0.1f;
                 DEBUG_MESSAGE("Solax: LiveData.AC_Voltage: %.1f V", liveData->AC_Voltage);
+                sprintf(publish_buff,"%.*f",6,value);
+                mosquitto_publish(mosq, NULL, "solax/AC_Voltage", sizeof(publish_buff), publish_buff , 0, true);
                 
                 value = (rxMessage.Data[16] << 8) | rxMessage.Data[17]; // AC Frequency [Hz]
                 liveData->Frequency = value * 0.01f;
                 DEBUG_MESSAGE("Solax: LiveData.Frequency: %.2f Hz", liveData->Frequency);
+                sprintf(publish_buff,"%.*f",6,value);
+                mosquitto_publish(mosq, NULL, "solax/Frequency", sizeof(publish_buff), publish_buff , 0, true);
                 
                 value = (rxMessage.Data[18] << 8) | rxMessage.Data[19]; // AC Power [W]
                 liveData->Power = value;
                 DEBUG_MESSAGE("Solax: LiveData.Power: %.0f W", liveData->Power);
+                sprintf(publish_buff,"%.*f",6,value);
+                mosquitto_publish(mosq, NULL, "solax/Power", sizeof(publish_buff), publish_buff , 0, true);
                 
                 //value = (rxMessage.Data[20] << 8) | rxMessage.Data[21]; // Not Used
+                //DEBUG_MESSAGE("Solax: LiveData.Not_Used: %.1f kWh", value);
+                //sprintf(publish_buff,"%.*f",6,value);
+                //mosquitto_publish(mosq, NULL, "solax/Not_Used", sizeof(publish_buff), publish_buff , 0, true);
                 
                 value = (rxMessage.Data[22] << 24) | (rxMessage.Data[23] << 16) | (rxMessage.Data[24] << 8) | rxMessage.Data[25]; // Energy Total [kWh]
                 if (value) {liveData->Energy_Total = value * 0.1f;}
                 DEBUG_MESSAGE("Solax: LiveData.Energy_Total: %.1f kWh", liveData->Energy_Total);
+                sprintf(publish_buff,"%.*f",6,value);
+                mosquitto_publish(mosq, NULL, "solax/Energy_Total", sizeof(publish_buff), publish_buff , 0, true);
                 
                 value = (rxMessage.Data[26] << 24) | (rxMessage.Data[27] << 16) | (rxMessage.Data[28] << 8) | rxMessage.Data[29]; // Work Time Total [hour]
                 if (value) {liveData->Runtime_Total = value;}
                 DEBUG_MESSAGE("Solax: LiveData.Runtime_Total: %.0f h", liveData->Runtime_Total);
+                sprintf(publish_buff,"%.*f",6,value);
+                mosquitto_publish(mosq, NULL, "solax/Runtime_Total", sizeof(publish_buff), publish_buff , 0, true);
                 
                 value = (rxMessage.Data[30] << 8) | rxMessage.Data[31]; // Work mode [???]
                 liveData->Status = (uint8_t)value;
                 DEBUG_MESSAGE("Solax: LiveData.Status: %d", liveData->Status);
+                sprintf(publish_buff,"%.*f",6,value);
+                mosquitto_publish(mosq, NULL, "solax/Status", sizeof(publish_buff), publish_buff , 0, true);
                 
                 //value = (rxMessage.Data[32] << 8) | rxMessage.Data[33]; // Grid voltage fault in 0.1V
                 //value = (rxMessage.Data[34] << 8) | rxMessage.Data[35]; // Gird frequency fault in 0.01Hz
                 //value = (rxMessage.Data[36] << 8) | rxMessage.Data[37]; // DC injection fault in 1mA
-                //value = (rxMessage.Data[38] << 8) | rxMessage.Data[39]; // Temperature fault in °C
+                //value = (rxMessage.Data[38] << 8) | rxMessage.Data[39]; // Temperature fault in ï¿½C
                 //value = (rxMessage.Data[40] << 8) | rxMessage.Data[41]; // Pv1 voltage fault in 0.1V
                 //value = (rxMessage.Data[42] << 8) | rxMessage.Data[43]; // Pv2 voltage fault in 0.1V
                 //value = (rxMessage.Data[44] << 8) | rxMessage.Data[45]; // GFC fault
@@ -951,7 +984,26 @@ int init_Serial_Interface(char device[])
     return 0;
 }
 
+int close_mqtt()
+{
+	mosquitto_disconnect(mosq);
+	mosquitto_destroy(mosq);
+	mosquitto_lib_cleanup();
+}
 
+int init_mqtt()
+{   int error;
+    mosquitto_lib_init();
+	mosq = mosquitto_new("publisher-test", true, NULL);
+	mosquitto_username_pw_set(mosq, "mqtt", "mqtt");
+	error = mosquitto_connect(mosq, "localhost", 1883, 60);
+	if(error != 0){
+		printf("Client could not connect to broker! Error Code: %d\n", error);
+		mosquitto_destroy(mosq);
+		return -1;
+	}
+	printf("We are now connected to the broker! test\n");
+}
 
 /*** MAIN ******************************************************************************************/
 
@@ -1051,11 +1103,14 @@ int main(int argc, char* argv[])
     error = init_Serial_Interface(arg_TTY_Device);  // open COM-Port
     if (error == -1) return errno;
     
+    init_mqtt();
+
     error = init_HTTP_Server(arg_TCP_Port);         // open TCP-Listener
     if (error == -1) return errno;
     
     while (1)
     {
+        mosquitto_loop(mosq,-1,1);
         error = solax_QueryHandle(&liveData[index]);
         if (error == -1) return errno;
         
@@ -1066,8 +1121,9 @@ int main(int argc, char* argv[])
         
         error = poll_HTTP_Server();
         if (error == -1) return errno;
-        
+                
         sleep(1);
     }
+    close_mqtt();
     return errno;
 }
