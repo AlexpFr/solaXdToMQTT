@@ -998,11 +998,11 @@ int init_mqtt()
 	mosquitto_username_pw_set(mosq, "mqtt", "mqtt");
 	error = mosquitto_connect(mosq, "localhost", 1883, 60);
 	if(error != 0){
-		printf("Client could not connect to broker! Error Code: %d\n", error);
+        ERROR_MESSAGE("MQTT client could not connect to broker - Error Code: %d", strerror(error))
 		mosquitto_destroy(mosq);
 		return -1;
 	}
-	printf("We are now connected to the broker! test\n");
+    NOTICE_MESSAGE("Init MQTT: We are now connected to the broker");
 }
 
 /*** MAIN ******************************************************************************************/
