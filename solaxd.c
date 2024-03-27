@@ -992,17 +992,32 @@ int close_mqtt()
 }
 
 int init_mqtt()
-{   int error;
+{   
+    int error;
+    int max_retries = 12; // Maximum number of connection retries
+    int retry_interval = 5; // Interval between connection retries in seconds
+
     mosquitto_lib_init();
-	mosq = mosquitto_new("publisher-test", true, NULL);
-	mosquitto_username_pw_set(mosq, "mqtt", "mqtt");
-	error = mosquitto_connect(mosq, "localhost", 1883, 60);
-	if(error != 0){
-        ERROR_MESSAGE("MQTT client could not connect to broker - Error Code: %d", strerror(error))
-		mosquitto_destroy(mosq);
-		return -1;
-	}
-    NOTICE_MESSAGE("Init MQTT: We are now connected to the broker");
+    mosq = mosquitto_new("publisher-test", true, NULL);
+    mosquitto_username_pw_set(mosq, "mqtt", "mqtt");
+
+    // Connection retries
+    for (int i = 0; i < max_retries; ++i) {
+        error = mosquitto_connect(mosq, "localhost", 1883, 60);
+        if (error == 0) {
+            NOTICE_MESSAGE("Init MQTT: We are now connected to the broker");
+            return 0; // Connection successful, return 0
+        } else {
+            ERROR_MESSAGE("MQTT client could not connect to broker - Error Code: %d", strerror(error));
+            if (i < max_retries - 1) {
+                NOTICE_MESSAGE("Retrying connection in %d seconds...", retry_interval);
+                sleep(retry_interval); // Wait before the next retry
+            }
+        }
+    }
+    
+    mosquitto_destroy(mosq);
+    return -1; // All retries failed, return -1
 }
 
 /*** MAIN ******************************************************************************************/
@@ -1103,7 +1118,8 @@ int main(int argc, char* argv[])
     error = init_Serial_Interface(arg_TTY_Device);  // open COM-Port
     if (error == -1) return errno;
     
-    init_mqtt();
+    error = init_mqtt();                            // connect to MQTT server
+    if (error == -1) return errno;
 
     error = init_HTTP_Server(arg_TCP_Port);         // open TCP-Listener
     if (error == -1) return errno;
