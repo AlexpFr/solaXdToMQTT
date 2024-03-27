@@ -47,7 +47,7 @@
 #define DEFAULT_AVERAGE_SAMPLES    10                     // interval use for average calculation (in seconds)
 #define DEFAULT_INVERTER_ADDRESS   0x0A                   // must be unique in case of more inverters in the same RS485 bus
 #define DEFAULT_LOG_FILE           NULL                   // stderr is used if NULL
-#define DEFAULT_LOG_LEVEL          LOG_TRACE              // support for different log levels
+#define DEFAULT_LOG_LEVEL          LOG_NOTICE             // support for different log levels
 #define DEFAULT_TEST_MODE          0                      // enabled / disabled of test & debug code
 
 #define QUALITY_OF_SERVICE_COUNT   100                    // QoS interval (in seconds)
