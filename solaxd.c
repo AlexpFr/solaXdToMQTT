@@ -44,6 +44,12 @@
 
 #define DEFAULT_TTY_DEVICE_NAME    "/dev/ttyUSB0"         // serial device
 #define DEFAULT_TCP_PORT           6789                   // http-server port
+
+#define DEFAULT_MQTT_SERVER        "localhost"            // MQTT-server adress
+#define DEFAULT_MQTT_PORT          1883                   // MQTT-server port
+#define DEFAULT_MQTT_LOGIN         "mqtt"                 // MQTT-server login
+#define DEFAULT_MQTT_PASSWORD      "mqtt"                 // MQTT-server password
+
 #define DEFAULT_AVERAGE_SAMPLES    10                     // interval use for average calculation (in seconds)
 #define DEFAULT_INVERTER_ADDRESS   0x0A                   // must be unique in case of more inverters in the same RS485 bus
 #define DEFAULT_LOG_FILE           NULL                   // stderr is used if NULL
@@ -126,6 +132,13 @@ typedef struct
 
 static char*      arg_TTY_Device   = DEFAULT_TTY_DEVICE_NAME;
 static int        arg_TCP_Port     = DEFAULT_TCP_PORT;
+
+static char*      arg_MQTT_Server   = DEFAULT_MQTT_SERVER;
+static int        arg_MQTT_Port     = DEFAULT_MQTT_PORT;
+static char*      arg_MQTT_Login    = DEFAULT_MQTT_LOGIN;
+static char*      arg_MQTT_Password = DEFAULT_MQTT_PASSWORD;
+
+
 static int        arg_AV_Samples   = DEFAULT_AVERAGE_SAMPLES;
 static int        arg_InverterAddr = DEFAULT_INVERTER_ADDRESS;
 static char*      arg_LogFile      = DEFAULT_LOG_FILE;
@@ -999,11 +1012,11 @@ int init_mqtt()
 
     mosquitto_lib_init();
     mosq = mosquitto_new("publisher-test", true, NULL);
-    mosquitto_username_pw_set(mosq, "mqtt", "mqtt");
+    mosquitto_username_pw_set(mosq, arg_MQTT_Login, arg_MQTT_Password);
 
     // Connection retries
     for (int i = 0; i < max_retries; ++i) {
-        error = mosquitto_connect(mosq, "localhost", 1883, 60);
+        error = mosquitto_connect(mosq, arg_MQTT_Server, arg_MQTT_Port, 60);
         if (error == 0) {
             NOTICE_MESSAGE("Init MQTT: We are now connected to the broker");
             return 0; // Connection successful, return 0
@@ -1046,6 +1059,10 @@ int main(int argc, char* argv[])
         printf("    Options:      The default value for each option is shown in square brackets.\n");
         printf("      -d <DEV>    Use DEV as SolaXd serial port device  [%s]\n", DEFAULT_TTY_DEVICE_NAME);
         printf("      -p <PORT>   Port of HTTP-Server  [%d]\n", DEFAULT_TCP_PORT);
+        printf("      -S <SERVER> MQTT server address  [%s]\n", DEFAULT_MQTT_SERVER);
+        printf("      -P <PORT>   Port of MQTT server  [%d]\n", DEFAULT_MQTT_PORT);
+        printf("      -U <LOGIN>  MQTT login  [%s]\n", DEFAULT_MQTT_LOGIN);
+        printf("      -W <PASSWD> MQTT password  [%s]\n", DEFAULT_MQTT_PASSWORD);
         printf("      -s <SAMPLE> Samples used for average calculation  [%d]\n", DEFAULT_AVERAGE_SAMPLES);
         printf("      -a <ADDR>   Use ADDR as inverter bus address  [%d]\n", DEFAULT_INVERTER_ADDRESS);
         printf("      -l <FILE>   Write log to FILE, instead to stderr\n");
@@ -1056,7 +1073,7 @@ int main(int argc, char* argv[])
         return 0;
     }
     
-    while ((opt = getopt (argc, argv, ":d:p:s:a:l:L:x")) != -1)
+    while ((opt = getopt (argc, argv, ":d:p:S:P:U:W:s:a:l:L:x")) != -1)
     {
         switch (opt)
         {
@@ -1065,6 +1082,42 @@ int main(int argc, char* argv[])
                 break;
             case 'p':
                 arg_TCP_Port = atoi(optarg);
+                break;
+            case 'S':
+                if (optarg != NULL) {
+                    arg_MQTT_Server = strdup(optarg);   // Allouez de la mémoire pour la nouvelle valeur
+                } else {
+                    fprintf(stderr, "Error: New value is too long or empty\n");
+                    return -1; // Gestion de l'erreur
+                }
+                break;
+            case 'P':
+                if (optarg != NULL) {
+                    arg_MQTT_Port = atoi(optarg);
+                    if (arg_MQTT_Port < 1 || arg_MQTT_Port > 65535) {           // Vérifier si le port est valide (entre 1 et 65535)
+                        fprintf(stderr, "Error: Invalid MQTT port number\n");
+                        return -1; // Gestion de l'erreur
+                    }
+                } else {
+                    fprintf(stderr, "Error: Missing MQTT port number\n");
+                    return -1; // Gestion de l'erreur
+                }
+                break;
+            case 'U':
+                if (optarg != NULL) {
+                    arg_MQTT_Login = strdup(optarg);
+                } else {
+                    fprintf(stderr, "Error: MQTT login cannot be empty\n");
+                    return -1; // Gestion de l'erreur
+                }
+                break;
+            case 'W':
+                if (optarg != NULL) {
+                    arg_MQTT_Password = strdup(optarg);
+                } else {
+                    fprintf(stderr, "Error: MQTT password cannot be empty\n");
+                    return -1; // Gestion de l'erreur
+                }
                 break;
             case 's':
                 arg_AV_Samples = atoi(optarg);
