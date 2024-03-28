@@ -1194,7 +1194,12 @@ int main(int argc, char* argv[])
     
     while (run == true)
     {
-        mosquitto_loop(mosq,-1,1);
+        error = mosquitto_loop(mosq,-1,1);
+        if (error != MOSQ_ERR_SUCCESS) {
+            ERROR_MESSAGE("MQTT client connection lost - Error Code: %d", error);
+            return error;
+        }
+
         error = solax_QueryHandle(&liveData[index]);
         if (error == -1) return errno;
         
