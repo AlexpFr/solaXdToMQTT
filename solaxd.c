@@ -35,6 +35,7 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <signal.h>
 #include <mosquitto.h>
 
 /*** Defines ********************************************************************************************/
@@ -156,7 +157,16 @@ static Solax_LiveData_t  solax_LiveData = {0};
 
 struct mosquitto * mosq;
 
+bool run = true;
+
 /*** Functions ******************************************************************************************/
+
+// Gestionnaire de signal pour SIGINT (Ctrl+C)
+void handle_sigint(int sig) {
+    printf("\nSignal SIGINT reçu. Arrêt du programme.\n");
+    run = false;    
+    alarm(2); // Définir un délai d'expiration de 2 secondes avant de quitter
+}
 
 void getDateTime(char dateTimeStr[])
 {
@@ -1015,7 +1025,7 @@ int init_mqtt()
     mosquitto_username_pw_set(mosq, arg_MQTT_Login, arg_MQTT_Password);
 
     // Connection retries
-    for (int i = 0; i < max_retries; ++i) {
+    for (int i = 0; i < max_retries && run == true; ++i) {
         error = mosquitto_connect(mosq, arg_MQTT_Server, arg_MQTT_Port, 60);
         if (error == 0) {
             NOTICE_MESSAGE("Init MQTT: We are now connected to the broker");
@@ -1037,6 +1047,11 @@ int init_mqtt()
 
 int main(int argc, char* argv[])
 {
+    if (signal(SIGINT, handle_sigint) == SIG_ERR) {
+        perror("Error configuring signal handler");
+        return EXIT_FAILURE;
+    }
+
     int opt;
     int error;
     uint8_t index = 0;
@@ -1177,7 +1192,7 @@ int main(int argc, char* argv[])
     error = init_HTTP_Server(arg_TCP_Port);         // open TCP-Listener
     if (error == -1) return errno;
     
-    while (1)
+    while (run == true)
     {
         mosquitto_loop(mosq,-1,1);
         error = solax_QueryHandle(&liveData[index]);
@@ -1194,5 +1209,5 @@ int main(int argc, char* argv[])
         sleep(1);
     }
     close_mqtt();
-    return errno;
+    return EXIT_SUCCESS;
 }
