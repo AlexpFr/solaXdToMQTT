@@ -1027,20 +1027,26 @@ int init_mqtt()
     // Connection retries
     for (int i = 0; i < max_retries && run == true; ++i) {
         error = mosquitto_connect(mosq, arg_MQTT_Server, arg_MQTT_Port, 60);
-        if (error == 0) {
-            NOTICE_MESSAGE("Init MQTT: We are now connected to the broker");
-            return 0; // Connection successful, return 0
-        } else {
-            ERROR_MESSAGE("MQTT client could not connect to broker - Error Code: %d", strerror(error));
-            if (i < max_retries - 1) {
+        for (int i = 0; i < 10 && error == MOSQ_ERR_SUCCESS && run == true; ++i) {
+            error = mosquitto_loop(mosq,0,1);
+            usleep(100000);  // Attendre 1000 microseconde
+        }
+        if (error == MOSQ_ERR_SUCCESS) {
+            NOTICE_MESSAGE("Init MQTT: We are now connected and logged to the broker");
+            return 0;
+        } else if (error == MOSQ_ERR_CONN_REFUSED) {
+            ERROR_MESSAGE("Init MQTT: No logged, verify login and password - Error Code: %d", error);
+            return -1;
+        } else if (i < max_retries - 1) {
+            ERROR_MESSAGE("MQTT broker is not reachable : verify your connection, server name and port - Error Code: %d", error);
                 NOTICE_MESSAGE("Retrying connection in %d seconds...", retry_interval);
-                sleep(retry_interval); // Wait before the next retry
-            }
+            sleep(retry_interval);
+        } else {
+            ERROR_MESSAGE("Maximum retries reached: Exiting");
+            close_mqtt();
+            return -1;
         }
     }
-    
-    mosquitto_destroy(mosq);
-    return -1; // All retries failed, return -1
 }
 
 /*** MAIN ******************************************************************************************/
