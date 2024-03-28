@@ -1011,7 +1011,7 @@ int init_mqtt()
     int retry_interval = 5; // Interval between connection retries in seconds
 
     mosquitto_lib_init();
-    mosq = mosquitto_new("publisher-test", true, NULL);
+    mosq = mosquitto_new("solaXdtoMQTT", true, NULL);
     mosquitto_username_pw_set(mosq, arg_MQTT_Login, arg_MQTT_Password);
 
     // Connection retries
