@@ -1135,7 +1135,7 @@ int main(int argc, char* argv[])
                     arg_MQTT_Server = strdup(optarg);   // Allouez de la mémoire pour la nouvelle valeur
                 } else {
                     fprintf(stderr, "Error: New value is too long or empty\n");
-                    return -1; // Gestion de l'erreur
+                    return EXIT_FAILURE; // Gestion de l'erreur
                 }
                 break;
             case 'P':
@@ -1143,11 +1143,11 @@ int main(int argc, char* argv[])
                     arg_MQTT_Port = atoi(optarg);
                     if (arg_MQTT_Port < 1 || arg_MQTT_Port > 65535) {           // Vérifier si le port est valide (entre 1 et 65535)
                         fprintf(stderr, "Error: Invalid MQTT port number\n");
-                        return -1; // Gestion de l'erreur
+                        return EXIT_FAILURE; // Gestion de l'erreur
                     }
                 } else {
                     fprintf(stderr, "Error: Missing MQTT port number\n");
-                    return -1; // Gestion de l'erreur
+                    return EXIT_FAILURE; // Gestion de l'erreur
                 }
                 break;
             case 'U':
@@ -1155,7 +1155,7 @@ int main(int argc, char* argv[])
                     arg_MQTT_Login = strdup(optarg);
                 } else {
                     fprintf(stderr, "Error: MQTT login cannot be empty\n");
-                    return -1; // Gestion de l'erreur
+                    return EXIT_FAILURE; // Gestion de l'erreur
                 }
                 break;
             case 'W':
@@ -1163,7 +1163,7 @@ int main(int argc, char* argv[])
                     arg_MQTT_Password = strdup(optarg);
                 } else {
                     fprintf(stderr, "Error: MQTT password cannot be empty\n");
-                    return -1; // Gestion de l'erreur
+                    return EXIT_FAILURE; // Gestion de l'erreur
                 }
                 break;
             case 's':
@@ -1183,13 +1183,13 @@ int main(int argc, char* argv[])
                 break;
             case ':':
                 fprintf (stderr, "Option -%c requires an argument.\n", optopt);
-                return -1;
+                return EXIT_FAILURE;
             case '?':
                 if (isprint (optopt))
                     fprintf (stderr, "Unknown option '-%c'.\n", optopt);
                 else
                     fprintf (stderr, "Unknown option character '0x%x'.\n", optopt);
-                return -1;
+                return EXIT_FAILURE;
             default:
                 abort();
         }
