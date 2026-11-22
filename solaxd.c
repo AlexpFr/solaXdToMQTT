@@ -1087,6 +1087,8 @@ int main(int argc, char* argv[])
     int opt;
     int error;
     uint8_t index = 0;
+    bool login_from_U = false;
+    bool password_from_W = false;
     Solax_LiveData_t liveData[MAX_INDEX_OF_LIVE_DATA + 1] = {0};
 
     if ((argc == 2) && (strcmp(argv[1], "--version") == 0))
@@ -1108,8 +1110,8 @@ int main(int argc, char* argv[])
         printf("      -p <PORT>   Port of HTTP-Server  [%d]\n", DEFAULT_TCP_PORT);
         printf("      -S <SERVER> MQTT server address  [%s]\n", DEFAULT_MQTT_SERVER);
         printf("      -P <PORT>   Port of MQTT server  [%d]\n", DEFAULT_MQTT_PORT);
-        printf("      -U <LOGIN>  MQTT login  [%s]\n", DEFAULT_MQTT_LOGIN);
-        printf("      -W <PASSWD> MQTT password  [%s]\n", DEFAULT_MQTT_PASSWORD);
+        printf("      -U <LOGIN>  MQTT login, overrides $SOLAXD_MQTT_LOGIN  [%s]\n", DEFAULT_MQTT_LOGIN);
+        printf("      -W <PASSWD> MQTT password, overrides $SOLAXD_MQTT_PASSWORD  [%s]\n", DEFAULT_MQTT_PASSWORD);
         printf("      -s <SAMPLE> Samples used for average calculation  [%d]\n", DEFAULT_AVERAGE_SAMPLES);
         printf("      -a <ADDR>   Use ADDR as inverter bus address  [%d]\n", DEFAULT_INVERTER_ADDRESS);
         printf("      -l <FILE>   Write log to FILE, instead to stderr\n");
@@ -1131,40 +1133,22 @@ int main(int argc, char* argv[])
                 arg_TCP_Port = atoi(optarg);
                 break;
             case 'S':
-                if (optarg != NULL) {
-                    arg_MQTT_Server = strdup(optarg);   // Allouez de la mémoire pour la nouvelle valeur
-                } else {
-                    fprintf(stderr, "Error: New value is too long or empty\n");
-                    return EXIT_FAILURE; // Gestion de l'erreur
-                }
+                arg_MQTT_Server = strdup(optarg);
                 break;
             case 'P':
-                if (optarg != NULL) {
-                    arg_MQTT_Port = atoi(optarg);
-                    if (arg_MQTT_Port < 1 || arg_MQTT_Port > 65535) {           // Vérifier si le port est valide (entre 1 et 65535)
-                        fprintf(stderr, "Error: Invalid MQTT port number\n");
-                        return EXIT_FAILURE; // Gestion de l'erreur
-                    }
-                } else {
-                    fprintf(stderr, "Error: Missing MQTT port number\n");
-                    return EXIT_FAILURE; // Gestion de l'erreur
+                arg_MQTT_Port = atoi(optarg);
+                if (arg_MQTT_Port < 1 || arg_MQTT_Port > 65535) {
+                    fprintf(stderr, "Error: Invalid MQTT port number\n");
+                    return EXIT_FAILURE;
                 }
                 break;
             case 'U':
-                if (optarg != NULL) {
-                    arg_MQTT_Login = strdup(optarg);
-                } else {
-                    fprintf(stderr, "Error: MQTT login cannot be empty\n");
-                    return EXIT_FAILURE; // Gestion de l'erreur
-                }
+                arg_MQTT_Login = strdup(optarg);
+                login_from_U = true;
                 break;
             case 'W':
-                if (optarg != NULL) {
-                    arg_MQTT_Password = strdup(optarg);
-                } else {
-                    fprintf(stderr, "Error: MQTT password cannot be empty\n");
-                    return EXIT_FAILURE; // Gestion de l'erreur
-                }
+                arg_MQTT_Password = strdup(optarg);
+                password_from_W = true;
                 break;
             case 's':
                 arg_AV_Samples = atoi(optarg);
@@ -1193,6 +1177,16 @@ int main(int argc, char* argv[])
             default:
                 abort();
         }
+    }
+    
+    // Login and password from the environment (e.g. EnvironmentFile of the systemd unit), unless -U or -W is given
+    if (!login_from_U) {
+        const char* env_login = getenv("SOLAXD_MQTT_LOGIN");
+        if (env_login != NULL) arg_MQTT_Login = strdup(env_login);
+    }
+    if (!password_from_W) {
+        const char* env_password = getenv("SOLAXD_MQTT_PASSWORD");
+        if (env_password != NULL) arg_MQTT_Password = strdup(env_password);
     }
     
     if (arg_LogFile == NULL)

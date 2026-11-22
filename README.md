@@ -73,6 +73,10 @@ The following parameter are used by solaXd:
     
     -d <DEV>    Use DEV as solaXd serial/tty device
     -p <PORT>   Port of HTTP-Server
+    -S <SERVER> MQTT server address
+    -P <PORT>   Port of MQTT server
+    -U <LOGIN>  MQTT login, overrides $SOLAXD_MQTT_LOGIN
+    -W <PASSWD> MQTT password, overrides $SOLAXD_MQTT_PASSWORD
     -s <SAMPLE> Samples used for average calculation
     -a <ADDR>   Use ADDR as inverter bus address
     -l <FILE>   Write log to FILE, instead to stderr
