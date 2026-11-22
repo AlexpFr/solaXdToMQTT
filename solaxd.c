@@ -806,7 +806,8 @@ void solax_LiveData_Average(const Solax_LiveData_t* liveData, uint8_t idx, uint8
 
 int solax_JsonPath(char buffer[], Solax_LiveData_t* liveData)
 {
-    static const char* solax_ErrorText[32] =
+    // Meaning of the 32 bits of error_bits. Not used yet: kept to publish the error texts.
+    static const char* solax_ErrorText[32] __attribute__((unused)) =
     {
         "Tz Protection Fault",           // Byte 0.0
         "Mains Lost Fault",              // Byte 0.1
