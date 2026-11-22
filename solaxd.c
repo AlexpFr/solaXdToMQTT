@@ -157,15 +157,21 @@ static Solax_LiveData_t  solax_LiveData = {0};
 
 struct mosquitto * mosq;
 
-bool run = true;
+volatile sig_atomic_t run = true;
+volatile sig_atomic_t fd_stop_log = -1;  // Log file descriptor for the signal handler, -1 = no trace
 
 /*** Functions ******************************************************************************************/
 
-// Gestionnaire de signal pour SIGINT (Ctrl+C)
-void handle_sigint(int sig) {
-    printf("\nSignal SIGINT reçu. Arrêt du programme.\n");
-    run = false;    
-    alarm(2); // Définir un délai d'expiration de 2 secondes avant de quitter
+// Handler of the stop signals: SIGINT (Ctrl+C) and SIGTERM (systemctl stop)
+void handle_stop(int sig) {
+    if (sig == SIGALRM) {
+        // Only write() is allowed in a signal handler: the trace has no timestamp
+        static const char msg[] = "[NOTE ] Main: Stop requested by signal, forced exit after timeout\n";
+        if (fd_stop_log != -1) write(fd_stop_log, msg, sizeof(msg) - 1);
+        _exit(EXIT_SUCCESS); // Timeout elapsed while the program is still blocked in a call
+    }
+    run = false;
+    alarm(2); // 2 seconds timeout to exit through the normal path
 }
 
 void getDateTime(char dateTimeStr[])
@@ -891,7 +897,6 @@ int solax_JsonPath(char buffer[], Solax_LiveData_t* liveData)
 int poll_HTTP_Server(void)
 {
     int fd_sock_client;
-    struct sockaddr_in addr_client;
     char response[1000];
     int len = 0;
 
@@ -1007,7 +1012,7 @@ int init_Serial_Interface(char device[])
     return 0;
 }
 
-int close_mqtt()
+void close_mqtt()
 {
 	mosquitto_disconnect(mosq);
 	mosquitto_destroy(mosq);
@@ -1031,6 +1036,9 @@ int init_mqtt()
             error = mosquitto_loop(mosq,0,1);
             usleep(100000);  // Attendre 1000 microseconde
         }
+        if (run == false) {
+            break;  // Stop requested during the connection attempt
+        }
         if (error == MOSQ_ERR_SUCCESS) {
             NOTICE_MESSAGE("Init MQTT: We are now connected and logged to the broker");
             return 0;
@@ -1047,13 +1055,22 @@ int init_mqtt()
             return -1;
         }
     }
+
+    // Stop requested before the connection was established
+    NOTICE_MESSAGE("Init MQTT: Stop requested by signal during connection, exiting");
+    close_mqtt();
+    return -1;
 }
 
 /*** MAIN ******************************************************************************************/
 
 int main(int argc, char* argv[])
 {
-    if (signal(SIGINT, handle_sigint) == SIG_ERR) {
+    // Without SA_RESTART: blocking calls (connect, sleep) are interrupted by the signal
+    struct sigaction sa = {0};
+    sa.sa_handler = handle_stop;
+    sigemptyset(&sa.sa_mask);
+    if (sigaction(SIGINT, &sa, NULL) == -1 || sigaction(SIGTERM, &sa, NULL) == -1 || sigaction(SIGALRM, &sa, NULL) == -1) {
         perror("Error configuring signal handler");
         return EXIT_FAILURE;
     }
@@ -1178,7 +1195,8 @@ int main(int argc, char* argv[])
         fp_log_file = fopen(arg_LogFile, "a");    // open Log-File
         if (fp_log_file == NULL) { printf("Main: Error opening Log-File '%s': %s\n", arg_LogFile, strerror(errno)); return errno; }
     }
-    
+    if (arg_LogLevel >= LOG_NOTICE) fd_stop_log = fileno(fp_log_file);
+
     NOTICE_MESSAGE("Main: %s started", SOLARXD_STRING);
     
     INFO_MESSAGE("Main: TTY_Device   : %s", arg_TTY_Device  );
@@ -1193,7 +1211,7 @@ int main(int argc, char* argv[])
     if (error == -1) return errno;
     
     error = init_mqtt();                            // connect to MQTT server
-    if (error == -1) return errno;
+    if (error == -1) return (run == false) ? EXIT_SUCCESS : errno;  // stop requested during the connection: normal stop
 
     error = init_HTTP_Server(arg_TCP_Port);         // open TCP-Listener
     if (error == -1) return errno;
@@ -1219,6 +1237,7 @@ int main(int argc, char* argv[])
                 
         sleep(1);
     }
+    NOTICE_MESSAGE("Main: Stop requested by signal, exiting");
     close_mqtt();
     return EXIT_SUCCESS;
 }
