@@ -93,6 +93,7 @@ typedef enum
 
 typedef enum
 {
+    ERR_FATAL = -1,     // read or write error on the serial interface
     ERR_NONE = 0,
     ERR_NO_DATA,
     ERR_INVALID_MSG,
@@ -287,7 +288,7 @@ Solax_ErrorQuery_t solax_RS485_Send(Solax_Message_t* txMessage)
     if (txLen != msgLen)
     {
         ERROR_MESSAGE("ComTx: Error transmitting data: %s", strerror(errno));
-        return -1;
+        return ERR_FATAL;
     }
     
     if (arg_LogLevel >= LOG_TRACE)
@@ -327,7 +328,7 @@ Solax_ErrorQuery_t solax_RS485_Receive(Solax_Message_t* rxMessage)
     if (rxLen < 0)
     {
         ERROR_MESSAGE("ComRx: Error receiving data: %s", strerror(errno));
-        return -1;
+        return ERR_FATAL;
     }
     
     if (arg_LogLevel >= LOG_TRACE)
@@ -456,7 +457,7 @@ Solax_ErrorQuery_t solax_ReceiveQuery(const Solax_StateQuery_t stateQuery, Solax
     Solax_ErrorQuery_t error;
         
     error = solax_RS485_Receive(&rxMessage);
-    if (error == -1) return -1;
+    if (error == ERR_FATAL) return ERR_FATAL;
     
     *liveData = (Solax_LiveData_t) {0};
         
@@ -639,7 +640,7 @@ int solax_QueryHandle(Solax_LiveData_t* liveData)
     Solax_ErrorQuery_t errorTx;
         
     errorRx = solax_ReceiveQuery(stateQuery, liveData);
-    if (errorRx == -1) return -1;
+    if (errorRx == ERR_FATAL) return -1;
     
     switch (stateQuery)
     {
@@ -720,7 +721,7 @@ int solax_QueryHandle(Solax_LiveData_t* liveData)
 
     
     errorTx = solax_SendQuery(stateQuery);
-    if (errorTx == -1) return -1;
+    if (errorTx == ERR_FATAL) return -1;
     
     return errorRx;
 }
