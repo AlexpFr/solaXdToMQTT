@@ -7,7 +7,7 @@ systemctl -q is-active solaxd  && { echo "ERROR: SolaXd service is still running
 
 install -m 755 solaxd           /usr/bin/solaxd
 install -m 644 solaxd.service   /lib/systemd/system/solaxd.service
-install -m 644 solaxd.conf      /etc/default/solaxd
+[ -e /etc/default/solaxd ] || install -m 600 solaxd.conf /etc/default/solaxd
 install -m 644 solaxd.logrotate /etc/logrotate.d/solaxd
 install -m 644 uninstall.sh     /usr/bin/uninstall-solaxd.sh
 
