@@ -1193,7 +1193,7 @@ int main(int argc, char* argv[])
     else
     {
         fp_log_file = fopen(arg_LogFile, "a");    // open Log-File
-        if (fp_log_file == NULL) { printf("Main: Error opening Log-File '%s': %s\n", arg_LogFile, strerror(errno)); return errno; }
+        if (fp_log_file == NULL) { printf("Main: Error opening Log-File '%s': %s\n", arg_LogFile, strerror(errno)); return EXIT_FAILURE; }
     }
     if (arg_LogLevel >= LOG_NOTICE) fd_stop_log = fileno(fp_log_file);
 
@@ -1208,24 +1208,24 @@ int main(int argc, char* argv[])
     INFO_MESSAGE("Main: TestMode     : %d", arg_TestMode    );
     
     error = init_Serial_Interface(arg_TTY_Device);  // open COM-Port
-    if (error == -1) return errno;
+    if (error == -1) return EXIT_FAILURE;
     
     error = init_mqtt();                            // connect to MQTT server
-    if (error == -1) return (run == false) ? EXIT_SUCCESS : errno;  // stop requested during the connection: normal stop
+    if (error == -1) return (run == false) ? EXIT_SUCCESS : EXIT_FAILURE;  // stop requested during the connection: normal stop
 
     error = init_HTTP_Server(arg_TCP_Port);         // open TCP-Listener
-    if (error == -1) return errno;
+    if (error == -1) return EXIT_FAILURE;
     
     while (run == true)
     {
         error = mosquitto_loop(mosq,-1,1);
         if (error != MOSQ_ERR_SUCCESS) {
             ERROR_MESSAGE("MQTT client connection lost - Error Code: %d", error);
-            return error;
+            return EXIT_FAILURE;
         }
 
         error = solax_QueryHandle(&liveData[index]);
-        if (error == -1) return errno;
+        if (error == -1) return EXIT_FAILURE;
         
         solax_LiveData_Average(liveData, index, MAX_INDEX_OF_LIVE_DATA);
         
@@ -1233,7 +1233,7 @@ int main(int argc, char* argv[])
         if (index > MAX_INDEX_OF_LIVE_DATA) index = 0;
         
         error = poll_HTTP_Server();
-        if (error == -1) return errno;
+        if (error == -1) return EXIT_FAILURE;
                 
         sleep(1);
     }
