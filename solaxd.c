@@ -1218,7 +1218,7 @@ int main(int argc, char* argv[])
     
     while (run == true)
     {
-        error = mosquitto_loop(mosq,-1,1);
+        error = mosquitto_loop(mosq,0,1);  // No wait: sleep(1) alone sets the 1 second period of the loop
         if (error != MOSQ_ERR_SUCCESS) {
             ERROR_MESSAGE("MQTT client connection lost - Error Code: %d", error);
             return EXIT_FAILURE;
