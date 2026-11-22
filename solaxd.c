@@ -443,6 +443,13 @@ Solax_ErrorQuery_t solax_SendQuery(const Solax_StateQuery_t stateQuery)
             error = solax_Send_QueryLiveData();
             break;
         }
+
+        default:
+        {
+            ERROR_MESSAGE("Solax: Invalid query state %d", stateQuery);
+            error = ERR_FATAL;
+            break;
+        }
     }
     return error;
 }
