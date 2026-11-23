@@ -116,18 +116,19 @@ typedef struct
 typedef struct
 {
     bool valid;
-    float Temperature;
-    float Energy_Today;
-    float DC1_Voltage;
-    float DC2_Voltage;
-    float DC1_Current;
-    float DC2_Current;
-    float AC_Current;
-    float AC_Voltage;
-    float Frequency;
-    float Power;
-    float Energy_Total;
-    float Runtime_Total;
+    // double: holds every uint32_t value of the inverter exactly, which float does not above 2^24
+    double Temperature;
+    double Energy_Today;
+    double DC1_Voltage;
+    double DC2_Voltage;
+    double DC1_Current;
+    double DC2_Current;
+    double AC_Current;
+    double AC_Voltage;
+    double Frequency;
+    double Power;
+    double Energy_Total;
+    double Runtime_Total;
     uint8_t Status;
     uint32_t ErrorBits;
 } Solax_LiveData_t;
@@ -567,42 +568,42 @@ Solax_ErrorQuery_t solax_ReceiveQuery(const Solax_StateQuery_t stateQuery, Solax
                 publish_scaled("solax/Temperature", value, 0);
                 
                 value = (rxMessage.Data[2] << 8) | rxMessage.Data[3]; // Energy Today [kWh]
-                liveData->Energy_Today = value * 0.1f;
+                liveData->Energy_Today = value * 0.1;
                 DEBUG_MESSAGE("Solax: LiveData.Energy_Today: %.1f kWh", liveData->Energy_Today);
                 publish_scaled("solax/Energy_Today", value, 1);
                 
                 value = (rxMessage.Data[4] << 8) | rxMessage.Data[5]; // PV1 Voltage [V]
-                liveData->DC1_Voltage = value * 0.1f;
+                liveData->DC1_Voltage = value * 0.1;
                 DEBUG_MESSAGE("Solax: LiveData.DC1_Voltage: %.1f V", liveData->DC1_Voltage);
                 publish_scaled("solax/DC1_Voltage", value, 1);
                 
                 value = (rxMessage.Data[6] << 8) | rxMessage.Data[7]; // PV2 Voltage [V]
-                liveData->DC2_Voltage = value * 0.1f;
+                liveData->DC2_Voltage = value * 0.1;
                 DEBUG_MESSAGE("Solax: LiveData.DC2_Voltage: %.1f V", liveData->DC2_Voltage);
                 publish_scaled("solax/DC2_Voltage", value, 1);
                 
                 value = (rxMessage.Data[8] << 8) | rxMessage.Data[9]; // PV1 Current [A]
-                liveData->DC1_Current = value * 0.1f;
+                liveData->DC1_Current = value * 0.1;
                 DEBUG_MESSAGE("Solax: LiveData.DC1_Current: %.1f A", liveData->DC1_Current);
                 publish_scaled("solax/DC1_Current", value, 1);
                 
                 value = (rxMessage.Data[10] << 8) | rxMessage.Data[11]; // PV2 Current [A]
-                liveData->DC2_Current = value * 0.1f;
+                liveData->DC2_Current = value * 0.1;
                 DEBUG_MESSAGE("Solax: LiveData.DC2_Current: %.1f A", liveData->DC2_Current);
                 publish_scaled("solax/DC2_Current", value, 1);
                 
                 value = (rxMessage.Data[12] << 8) | rxMessage.Data[13]; // AC Current [A]
-                liveData->AC_Current = value * 0.1f;
+                liveData->AC_Current = value * 0.1;
                 DEBUG_MESSAGE("Solax: LiveData.AC_Current: %.1f A", liveData->AC_Current);
                 publish_scaled("solax/AC_Current", value, 1);
                 
                 value = (rxMessage.Data[14] << 8) | rxMessage.Data[15]; // AC Voltage [V]
-                liveData->AC_Voltage = value * 0.1f;
+                liveData->AC_Voltage = value * 0.1;
                 DEBUG_MESSAGE("Solax: LiveData.AC_Voltage: %.1f V", liveData->AC_Voltage);
                 publish_scaled("solax/AC_Voltage", value, 1);
                 
                 value = (rxMessage.Data[16] << 8) | rxMessage.Data[17]; // AC Frequency [Hz]
-                liveData->Frequency = value * 0.01f;
+                liveData->Frequency = value * 0.01;
                 DEBUG_MESSAGE("Solax: LiveData.Frequency: %.2f Hz", liveData->Frequency);
                 publish_scaled("solax/Frequency", value, 2);
                 
@@ -616,7 +617,7 @@ Solax_ErrorQuery_t solax_ReceiveQuery(const Solax_StateQuery_t stateQuery, Solax
                 //publish_scaled("solax/Not_Used", value, 0);
                 
                 value = (rxMessage.Data[22] << 24) | (rxMessage.Data[23] << 16) | (rxMessage.Data[24] << 8) | rxMessage.Data[25]; // Energy Total [kWh]
-                if (value) {liveData->Energy_Total = value * 0.1f;}
+                if (value) {liveData->Energy_Total = value * 0.1;}
                 DEBUG_MESSAGE("Solax: LiveData.Energy_Total: %.1f kWh", liveData->Energy_Total);
                 publish_scaled("solax/Energy_Total", value, 1);
                 
