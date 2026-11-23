@@ -230,7 +230,8 @@ void log_Message(int level, FILE* fp, const char fmt[], ...)
 
 int log_Bin2Hex(char buff[], const uint8_t data[], const uint8_t dataLen)
 {
-    int x, i;
+    unsigned int x;
+    int i;
     int len = 0;
     
     if (dataLen)
@@ -893,7 +894,7 @@ int solax_JsonPath(char buffer[], Solax_LiveData_t* liveData)
     len += sprintf(&buffer[len], "      \"energy_total\": %.1f,\r\n",     liveData->Energy_Total);  //
     len += sprintf(&buffer[len], "      \"runtime_total\": %.0f,\r\n",    liveData->Runtime_Total); //
     len += sprintf(&buffer[len], "      \"status\": %d,\r\n",             liveData->Status);        //
-    len += sprintf(&buffer[len], "      \"error_bits\": %d\r\n",          liveData->ErrorBits);     //
+    len += sprintf(&buffer[len], "      \"error_bits\": %u\r\n",          liveData->ErrorBits);     //
     len += sprintf(&buffer[len], "    }\r\n");                                                      //
     len += sprintf(&buffer[len], "  }\r\n");                                                        //
     len += sprintf(&buffer[len], "}\r\n");                                                          //
@@ -1041,7 +1042,7 @@ int init_mqtt()
     // Connection retries
     for (int i = 0; i < max_retries && run == true; ++i) {
         error = mosquitto_connect(mosq, arg_MQTT_Server, arg_MQTT_Port, 60);
-        for (int i = 0; i < 10 && error == MOSQ_ERR_SUCCESS && run == true; ++i) {
+        for (int j = 0; j < 10 && error == MOSQ_ERR_SUCCESS && run == true; ++j) {
             error = mosquitto_loop(mosq,0,1);
             usleep(100000);  // Attendre 1000 microseconde
         }
@@ -1172,7 +1173,7 @@ int main(int argc, char* argv[])
                 if (isprint (optopt))
                     fprintf (stderr, "Unknown option '-%c'.\n", optopt);
                 else
-                    fprintf (stderr, "Unknown option character '0x%x'.\n", optopt);
+                    fprintf (stderr, "Unknown option character '0x%x'.\n", (unsigned char)optopt);
                 return EXIT_FAILURE;
             default:
                 abort();
