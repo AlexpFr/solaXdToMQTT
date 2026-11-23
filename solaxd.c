@@ -147,7 +147,7 @@ typedef enum
 {
     MQTT_CONNECTED,     // the broker accepted the connection
     MQTT_RETRY,         // broker not reachable, no answer, or not ready: worth another attempt
-    MQTT_REFUSED,       // the broker refused the connection (login, password...): another attempt gives the same answer
+    MQTT_REFUSED,       // the broker refused the connection (login, password...): solaxd exits with EX_CONFIG, systemd restarts it
     MQTT_STOPPED        // stop requested by a signal during the attempt
 } Mqtt_Attempt_t;
 
@@ -1322,7 +1322,8 @@ Mqtt_Attempt_t mqtt_wait_connected(void)
 
 // Connects to the broker, opens the HTTP server, then runs the main loop until a stop or a configuration error.
 // An absent broker or serial port is waited for, at startup as well as later. Returns the exit code of the program:
-// EX_CONFIG for an error that a restart does not fix. main() calls cleanup() afterwards, whatever the return path.
+// EX_CONFIG for a configuration error (connection refused by the broker, HTTP port unusable): systemd restarts solaxd
+// anyway, and the next start picks up a fix made meanwhile. main() calls cleanup() afterwards, whatever the return path.
 int run_daemon(void)
 {
     int error;
