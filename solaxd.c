@@ -964,6 +964,15 @@ int poll_HTTP_Server(void)
 
     fd_sock_client = accept(fd_sock_server, NULL, NULL);
  
+    // Network errors already pending on the new connection: man 2 accept, "Error handling", says to treat them like
+    // EAGAIN and retry. The connection is lost, the server keeps running.
+    if ((fd_sock_client == -1) && ((errno == ENETDOWN) || (errno == EPROTO) || (errno == ENOPROTOOPT) ||
+        (errno == EHOSTDOWN) || (errno == ENONET) || (errno == EHOSTUNREACH) || (errno == EOPNOTSUPP) || (errno == ENETUNREACH)))
+    {
+        DEBUG_MESSAGE("Http: Connection lost before it was accepted: %s", strerror(errno));
+        return 0;
+    }
+
     if ((fd_sock_client == -1) && (errno != EWOULDBLOCK))
     {
         ERROR_MESSAGE("Http: Error when accepting HTTP-Client connection: %s", strerror(errno));
