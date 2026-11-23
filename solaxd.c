@@ -1075,9 +1075,22 @@ int init_mqtt()
     int max_retries = 12; // Maximum number of connection retries
     unsigned int retry_interval = 5; // Interval between connection retries in seconds, type expected by sleep()
 
-    mosquitto_lib_init();
+    error = mosquitto_lib_init();
+    if (error != MOSQ_ERR_SUCCESS) {
+        ERROR_MESSAGE("Init MQTT: Error initializing the library: %s", mosquitto_strerror(error));
+        return -1;
+    }
     mosq = mosquitto_new("solaXdtoMQTT", true, NULL);
-    mosquitto_username_pw_set(mosq, arg_MQTT_Login, arg_MQTT_Password);
+    if (mosq == NULL) {
+        ERROR_MESSAGE("Init MQTT: Error creating the client: %s", strerror(errno));
+        mosquitto_lib_cleanup();  // close_mqtt() is not called when there is no client
+        return -1;
+    }
+    error = mosquitto_username_pw_set(mosq, arg_MQTT_Login, arg_MQTT_Password);
+    if (error != MOSQ_ERR_SUCCESS) {
+        ERROR_MESSAGE("Init MQTT: Error setting the login and password: %s", mosquitto_strerror(error));
+        return -1;
+    }
 
     // Connection retries
     for (int i = 0; i < max_retries && run != 0; ++i) {
