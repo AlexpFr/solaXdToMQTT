@@ -1133,9 +1133,14 @@ void close_mqtt()
 		error = mosquitto_publish(mosq, &mid, TOPIC_DAEMON_ONLINE, 7, "offline", MQTT_STATE_QOS, true);
 		if (error == MOSQ_ERR_SUCCESS) {
 			mqtt_offline_mid = mid;
-			// The time is measured rather than the calls counted: each message queued by libmosquitto also wakes its loop up
-			// through an internal socket pair, and each call reads one wake-up only. After the live data messages,
-			// mosquitto_loop() therefore returns at once many times before it waits for the acknowledgement.
+			// The time is measured rather than the calls counted: the documentation of mosquitto_loop() gives its timeout as a
+			// maximum, not as a wait. In practice it returns at once. Checked in the libmosquitto sources (2.0.11, unchanged up
+			// to 2.0.23): packet__queue() writes one byte to an internal socket pair for each queued message, even without
+			// a network thread (its comment says "if in threaded mode", the code does not check it), and each call of
+			// mosquitto_loop() reads one byte only. The send buffer of the socket pair stays full (about 210 KB of kernel
+			// memory), so mosquitto_loop() always has something to read and never waits.
+			// Without consequence for solaxd. libmosquitto 2.1.0 adds MOSQ_OPT_DISABLE_SOCKETPAIR, off by default: set by
+			// solaxd with mosquitto_int_option(), it would remove this socket pair, which an external loop does not need.
 			struct timespec start;
 			clock_gettime(CLOCK_MONOTONIC, &start);
 			while (!mqtt_offline_acked && elapsed_ms(&start) < MQTT_OFFLINE_ACK_TIMEOUT) {
