@@ -66,6 +66,12 @@
 #define MQTT_CONNACK_TIMEOUT       5                      // wait for the answer of the broker to a connection request (in seconds)
 #define MQTT_RETRY_INTERVAL        5                      // interval between connection attempts (in seconds)
 
+// Availability: retained "online" / "offline" messages, with QoS 1 so that a lost message is sent again
+#define TOPIC_DAEMON_ONLINE        "solax/daemon_online"  // solaxd running and connected; "offline" is also the last will
+#define TOPIC_INVERTER_ONLINE      "solax/inverter_online" // the inverter answers on the RS485 bus
+#define MQTT_STATE_QOS             1
+#define MQTT_OFFLINE_ACK_TIMEOUT   10                     // wait for the broker to acknowledge "offline" when stopping (in 100 ms steps)
+
 /*** Macros ********************************************************************************************/
 
 #define lowByte(i)    ( (uint8_t) i )
@@ -174,6 +180,8 @@ static Solax_LiveData_t  solax_LiveData = {0};
 struct mosquitto * mosq;
 static int  mqtt_connack   = -1;     // Answer of the broker to the last connection request: -1 = none yet, 0 = accepted, > 0 = refused
 static bool mqtt_connected = false;  // Set by on_connect() and on_disconnect()
+static int  mqtt_offline_mid = -1;   // Message id of the "offline" message sent when stopping, -1 = none
+static bool mqtt_offline_acked = false;  // Set by on_publish() when the broker has acknowledged the "offline" message
 
 // Set to 0 by the signal handler: a volatile sig_atomic_t, an integer type, not a bool
 volatile sig_atomic_t run = 1;
@@ -502,6 +510,16 @@ void publish_scaled(const char* topic, uint32_t raw, unsigned int decimals)
 }
 
 
+// Publishes an availability state (retained, QoS 1). Nothing is sent without a connection: on_connect() publishes both states.
+void publish_state(const char* topic, bool online)
+{
+    const char* state = online ? "online" : "offline";
+
+    if (!mqtt_connected) return;
+    mosquitto_publish(mosq, NULL, topic, (int)strlen(state), state, MQTT_STATE_QOS, true);
+}
+
+
 Solax_ErrorQuery_t solax_ReceiveQuery(const Solax_StateQuery_t stateQuery, Solax_LiveData_t* liveData)
 {
     static Solax_Message_t rxMessage;
@@ -747,6 +765,7 @@ int solax_QueryHandle(Solax_LiveData_t* liveData)
         {
             solax_InverterOnline = false;
             NOTICE_MESSAGE("Solax: Inverter offline");
+            publish_state(TOPIC_INVERTER_ONLINE, false);
         }
     }
     else  // (solax_InverterOnline == false)
@@ -755,6 +774,7 @@ int solax_QueryHandle(Solax_LiveData_t* liveData)
         {
             solax_InverterOnline = true;
             NOTICE_MESSAGE("Solax: Live data received");
+            publish_state(TOPIC_INVERTER_ONLINE, true);
         }
     }
 
@@ -1059,7 +1079,23 @@ int init_Serial_Interface(char device[])
 
 void close_mqtt()
 {
-	mosquitto_disconnect(mosq);
+	// A clean disconnection cancels the last will: "offline" is published here, and the broker is given up to 1 s to acknowledge it
+	if (mqtt_connected) {
+		int mid;
+		mqtt_offline_acked = false;
+		if (mosquitto_publish(mosq, &mid, TOPIC_DAEMON_ONLINE, 7, "offline", MQTT_STATE_QOS, true) == MOSQ_ERR_SUCCESS) {
+			mqtt_offline_mid = mid;
+			for (int i = 0; i < MQTT_OFFLINE_ACK_TIMEOUT && !mqtt_offline_acked; ++i) {
+				if (mosquitto_loop(mosq, 100, 1) != MOSQ_ERR_SUCCESS) break;
+			}
+		}
+	}
+	if (mqtt_connected && !mqtt_offline_acked) {
+		// No DISCONNECT: the connection is closed without it, so that the broker publishes the last will instead
+		NOTICE_MESSAGE("MQTT: \"offline\" not acknowledged by the broker, left to the last will");
+	} else {
+		mosquitto_disconnect(mosq);
+	}
 	mosquitto_destroy(mosq);
 	mosquitto_lib_cleanup();
 	mosq = NULL;  // Lets cleanup() know that there is no session left to close
@@ -1088,7 +1124,20 @@ void on_connect(struct mosquitto* client, void* userdata, int rc)
     (void)client;
     (void)userdata;
     mqtt_connack = rc;
-    if (rc == 0) mqtt_connected = true;
+    if (rc == 0) {
+        mqtt_connected = true;
+        // Called again after each reconnection: both states are published again, the inverter one may have changed meanwhile
+        publish_state(TOPIC_DAEMON_ONLINE, true);
+        publish_state(TOPIC_INVERTER_ONLINE, solax_InverterOnline);
+    }
+}
+
+// Called by mosquitto_loop() when the broker has acknowledged a QoS 1 message
+void on_publish(struct mosquitto* client, void* userdata, int mid)
+{
+    (void)client;
+    (void)userdata;
+    if (mid == mqtt_offline_mid) mqtt_offline_acked = true;
 }
 
 // Called by mosquitto_loop() when the connection is closed, whatever the reason
@@ -1158,8 +1207,16 @@ int init_mqtt()
         return -1;
     }
 
+    // Published by the broker if the connection is lost without a DISCONNECT (crash, network failure)
+    error = mosquitto_will_set(mosq, TOPIC_DAEMON_ONLINE, 7, "offline", MQTT_STATE_QOS, true);
+    if (error != MOSQ_ERR_SUCCESS) {
+        ERROR_MESSAGE("Init MQTT: Error setting the last will: %s", mosquitto_strerror(error));
+        return -1;
+    }
+
     mosquitto_connect_callback_set(mosq, on_connect);
     mosquitto_disconnect_callback_set(mosq, on_disconnect);
+    mosquitto_publish_callback_set(mosq, on_publish);
 
     // Connection retries
     for (int i = 0; i < max_retries && run != 0; ++i) {
