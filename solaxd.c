@@ -281,7 +281,7 @@ uint16_t solax_CalculateCRC(const uint8_t data[], const uint8_t dataLen)
 
 Solax_ErrorQuery_t solax_RS485_Send(Solax_Message_t* txMessage)
 {
-    int txLen;
+    ssize_t txLen;  // Type returned by write()
     uint8_t msgLen;
     uint16_t crc;
     
@@ -317,7 +317,7 @@ Solax_ErrorQuery_t solax_RS485_Send(Solax_Message_t* txMessage)
 
 Solax_ErrorQuery_t solax_RS485_Receive(Solax_Message_t* rxMessage)
 {
-    int rxLen; // read length
+    ssize_t rxLen; // read length, type returned by read()
     uint8_t msgLen;
     uint16_t crc;
     
@@ -331,10 +331,10 @@ Solax_ErrorQuery_t solax_RS485_Receive(Solax_Message_t* rxMessage)
         static const uint8_t rx_msg_2[] = {0xAA, 0x55, 0x00, 0x0A, 0x00, 0x00, 0x10, 0x81, 0x01, 0x06, 0x01, 0xA1};
         static const uint8_t rx_msg_3[] = {0xAA, 0x55, 0x00, 0x0A, 0x01, 0x00, 0x11, 0x82, 0x32, 0x00, 0x0B, 0x00, 0x01, 0x06, 0xDD, 0x00, 0x00, 0x00, 0x1F, 0x00, 0x00, 0x00, 0x15, 0x09, 0x21, 0x13, 0x87, 0x01, 0xE7, 0xFF, 0xFF, 0x00, 0x00, 0x12, 0xD3, 0x00, 0x00, 0x0A, 0x0F, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x9C};
         static const uint8_t rx_msg_4[] = {0xAA, 0x55, 0x00, 0x0A, 0x01, 0x00, 0x11, 0x82, 0x32, 0x00, 0x0B, 0x00, 0x01, 0x06, 0xCB, 0x00, 0x00, 0x00, 0x1E, 0x00, 0x00, 0x00, 0x14, 0x09, 0x22, 0x13, 0x89, 0x01, 0xD7, 0xFF, 0xFF, 0x00, 0x00, 0x12, 0xD3, 0x00, 0x00, 0x0A, 0x0F, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x7B};
-        if (x == 1) {rxLen = sizeof(rx_msg_1); memcpy(rxMessage, rx_msg_1, rxLen);}
-        if (x == 2) {rxLen = sizeof(rx_msg_2); memcpy(rxMessage, rx_msg_2, rxLen);}
-        if (x == 3) {rxLen = sizeof(rx_msg_3); memcpy(rxMessage, rx_msg_3, rxLen);}
-        if (x == 4) {rxLen = sizeof(rx_msg_4); memcpy(rxMessage, rx_msg_4, rxLen);}
+        if (x == 1) {rxLen = sizeof(rx_msg_1); memcpy(rxMessage, rx_msg_1, sizeof(rx_msg_1));}
+        if (x == 2) {rxLen = sizeof(rx_msg_2); memcpy(rxMessage, rx_msg_2, sizeof(rx_msg_2));}
+        if (x == 3) {rxLen = sizeof(rx_msg_3); memcpy(rxMessage, rx_msg_3, sizeof(rx_msg_3));}
+        if (x == 4) {rxLen = sizeof(rx_msg_4); memcpy(rxMessage, rx_msg_4, sizeof(rx_msg_4));}
         x++; if (x > 4) {x = 3;}
     }
     
@@ -953,7 +953,7 @@ int poll_HTTP_Server(void)
         len += sprintf(&response[len], "\r\n");
         len += solax_JsonPath(&response[len], &solax_LiveData);
 
-        ssize_t written = write(fd_sock_client, response, len);
+        ssize_t written = write(fd_sock_client, response, (size_t)len);  // len >= 0: sum of the sprintf() results
         if (written < 0)
         {
             ERROR_MESSAGE("Http: Error sending the response: %s", strerror(errno));
