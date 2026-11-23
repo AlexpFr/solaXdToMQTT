@@ -5,6 +5,8 @@ After=network-online.target
 [Service]
 Restart=always
 RestartSec=60
+# 78 = EX_CONFIG: configuration error (options, log file, login refused by the broker, HTTP port), a restart gives the same result
+RestartPreventExitStatus=78
 EnvironmentFile=-/etc/default/solaxd
 ExecStart=/usr/bin/solaxd $SOLAXD_OPTS
 

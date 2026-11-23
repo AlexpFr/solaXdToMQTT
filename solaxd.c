@@ -37,6 +37,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <signal.h>
+#include <sysexits.h>
 #include <stdatomic.h>
 #include <mosquitto.h>
 
@@ -1036,20 +1037,24 @@ int init_HTTP_Server(uint16_t port)
 }
 
 
-int init_Serial_Interface(char device[])
+// Opens and sets up the serial port. On failure, the port is left closed (fd_tty = -1) and the error is logged if log_errors is true.
+int init_Serial_Interface(char device[], bool log_errors)
 {
     struct termios tty;
-    
+
     fd_tty = open(device, O_RDWR | O_NOCTTY | O_SYNC);
     if (fd_tty < 0)
     {
-        ERROR_MESSAGE("Init: Error opening '%s': %s", device, strerror(errno));
+        if (log_errors) ERROR_MESSAGE("Init: Error opening '%s': %s", device, strerror(errno));
+        fd_tty = -1;
         return -1;
     }
-    
+
     if (tcgetattr(fd_tty, &tty) < 0)
     {
-        ERROR_MESSAGE("Init: Error opening '%s': %s", device, strerror(errno));
+        if (log_errors) ERROR_MESSAGE("Init: Error opening '%s': %s", device, strerror(errno));
+        close(fd_tty);
+        fd_tty = -1;
         return -1;
     }
     
@@ -1069,12 +1074,45 @@ int init_Serial_Interface(char device[])
     
     if (tcsetattr(fd_tty, TCSANOW, &tty) != 0)
     {
-        ERROR_MESSAGE("Init: Error opening '%s': %s", device, strerror(errno));
+        if (log_errors) ERROR_MESSAGE("Init: Error opening '%s': %s", device, strerror(errno));
+        close(fd_tty);
+        fd_tty = -1;
         return -1;
     }
     
     NOTICE_MESSAGE("Init: Device '%s' opened successfully", device);
     return 0;
+}
+
+// Makes sure that the serial port is open: tries to open it once if it is closed. Called every second by the main loop,
+// so that an absent port (e.g. while socat creates it again) is waited for. Only the first failure of an absence is logged.
+bool serial_ready(void)
+{
+    static bool waiting = false;  // An absence is in progress and has already been logged
+
+    if (fd_tty != -1) return true;
+    if (init_Serial_Interface(arg_TTY_Device, !waiting) == 0) {
+        waiting = false;
+        return true;
+    }
+    if (!waiting) {
+        NOTICE_MESSAGE("Serial: Waiting for '%s', checked every second", arg_TTY_Device);
+        waiting = true;
+    }
+    return false;
+}
+
+// Closes the serial port after a read or write error, so that serial_ready() opens it again. The inverter is offline meanwhile.
+void serial_lost(void)
+{
+    close(fd_tty);
+    fd_tty = -1;
+    NOTICE_MESSAGE("Serial: Port '%s' closed after an error, opening it again", arg_TTY_Device);
+    if (solax_InverterOnline == true) {
+        solax_InverterOnline = false;
+        NOTICE_MESSAGE("Solax: Inverter offline");
+        publish_state(TOPIC_INVERTER_ONLINE, false);
+    }
 }
 
 void close_mqtt()
@@ -1183,12 +1221,10 @@ Mqtt_Attempt_t mqtt_connect_once(const char** reason)
     return MQTT_RETRY;
 }
 
+// Creates the MQTT client, without connecting it. Returns -1 on error.
 int init_mqtt()
 {
     int error;
-    int max_retries = 12; // Maximum number of connection retries
-    unsigned int retry_interval = MQTT_RETRY_INTERVAL; // Type expected by sleep()
-    const char* reason = "";
 
     error = mosquitto_lib_init();
     if (error != MOSQ_ERR_SUCCESS) {
@@ -1217,66 +1253,81 @@ int init_mqtt()
     mosquitto_connect_callback_set(mosq, on_connect);
     mosquitto_disconnect_callback_set(mosq, on_disconnect);
     mosquitto_publish_callback_set(mosq, on_publish);
-
-    // Connection retries
-    for (int i = 0; i < max_retries && run != 0; ++i) {
-        Mqtt_Attempt_t attempt = mqtt_connect_once(&reason);
-        if (attempt == MQTT_STOPPED) {
-            break;  // Stop requested during the connection attempt
-        }
-        if (attempt == MQTT_CONNECTED) {
-            NOTICE_MESSAGE("Init MQTT: Connected, the broker accepted the connection");
-            return 0;
-        } else if (attempt == MQTT_REFUSED) {
-            ERROR_MESSAGE("Init MQTT: The broker refused the connection: %s", reason);
-            return -1;
-        } else if (i < max_retries - 1) {
-            ERROR_MESSAGE("Init MQTT: Broker not reachable: %s", reason);
-            NOTICE_MESSAGE("Retrying connection in %u seconds...", retry_interval);
-            sleep(retry_interval);
-        } else {
-            ERROR_MESSAGE("Maximum retries reached: Exiting");
-            return -1;
-        }
-    }
-
-    // Stop requested before the connection was established
-    NOTICE_MESSAGE("Init MQTT: Stop requested by signal %d (%s) during connection, exiting", (int)stop_signal, strsignal((int)stop_signal));
-    return -1;
+    return 0;
 }
 
-// Opens the serial port, the MQTT session and the HTTP server, then runs the main loop until a stop or an error.
-// Returns the exit code of the program. main() calls cleanup() afterwards, whatever the return path.
+// Connects to the broker, with an attempt every MQTT_RETRY_INTERVAL seconds until it accepts or refuses the connection,
+// or until a stop is requested. Used at startup and after a lost connection. Only the first failure of an absence is logged.
+// Returns MQTT_CONNECTED, MQTT_REFUSED or MQTT_STOPPED.
+Mqtt_Attempt_t mqtt_wait_connected(void)
+{
+    unsigned int retry_interval = MQTT_RETRY_INTERVAL; // Type expected by sleep()
+    const char* reason = "";
+    bool waiting = false;  // An absence is in progress and has already been logged
+
+    while (run != 0) {
+        Mqtt_Attempt_t attempt = mqtt_connect_once(&reason);
+        if (attempt == MQTT_CONNECTED) {
+            NOTICE_MESSAGE("MQTT: Connected, the broker accepted the connection");
+            return MQTT_CONNECTED;
+        }
+        if (attempt == MQTT_REFUSED) {
+            ERROR_MESSAGE("MQTT: The broker refused the connection: %s", reason);
+            return MQTT_REFUSED;
+        }
+        if (attempt == MQTT_STOPPED) break;
+        if (!waiting) {
+            ERROR_MESSAGE("MQTT: Broker not reachable, new attempt every %u seconds: %s", retry_interval, reason);
+            waiting = true;
+        } else {
+            DEBUG_MESSAGE("MQTT: Broker still not reachable: %s", reason);
+        }
+        sleep(retry_interval);  // Interrupted by a stop signal
+    }
+    return MQTT_STOPPED;
+}
+
+// Connects to the broker, opens the HTTP server, then runs the main loop until a stop or a configuration error.
+// An absent broker or serial port is waited for, at startup as well as later. Returns the exit code of the program:
+// EX_CONFIG for an error that a restart does not fix. main() calls cleanup() afterwards, whatever the return path.
 int run_daemon(void)
 {
     int error;
     uint8_t index = 0;
     Solax_LiveData_t liveData[MAX_INDEX_OF_LIVE_DATA + 1] = {0};
 
-    error = init_Serial_Interface(arg_TTY_Device);  // open COM-Port
+    error = init_mqtt();                            // create the MQTT client
     if (error == -1) return EXIT_FAILURE;
 
-    error = init_mqtt();                            // connect to MQTT server
-    if (error == -1) return (run == 0) ? EXIT_SUCCESS : EXIT_FAILURE;  // stop requested during the connection: normal stop
+    if (mqtt_wait_connected() == MQTT_REFUSED) return EX_CONFIG;  // connect to MQTT server
 
-    error = init_HTTP_Server(arg_TCP_Port);         // open TCP-Listener
-    if (error == -1) return EXIT_FAILURE;
+    if (run != 0) {
+        error = init_HTTP_Server(arg_TCP_Port);     // open TCP-Listener
+        if (error == -1) return EX_CONFIG;
+    }
 
     while (run != 0)
     {
         error = mosquitto_loop(mosq,0,1);  // No wait: sleep(1) alone sets the 1 second period of the loop
         if (error != MOSQ_ERR_SUCCESS) {
-            ERROR_MESSAGE("MQTT client connection lost - Error Code: %d", error);
-            return EXIT_FAILURE;
+            mqtt_connected = false;
+            ERROR_MESSAGE("MQTT: Connection lost: %s", (error == MOSQ_ERR_ERRNO) ? strerror(errno) : mosquitto_strerror(error));
+            if (mqtt_wait_connected() == MQTT_REFUSED) return EX_CONFIG;
+            continue;
         }
 
-        error = solax_QueryHandle(&liveData[index]);
-        if (error == -1) return EXIT_FAILURE;
+        if (serial_ready())                // open COM-Port, again after an error
+        {
+            error = solax_QueryHandle(&liveData[index]);
+            if (error == -1) {
+                serial_lost();
+            } else {
+                solax_LiveData_Average(liveData, index, MAX_INDEX_OF_LIVE_DATA);
 
-        solax_LiveData_Average(liveData, index, MAX_INDEX_OF_LIVE_DATA);
-
-        index++;
-        if (index > MAX_INDEX_OF_LIVE_DATA) index = 0;
+                index++;
+                if (index > MAX_INDEX_OF_LIVE_DATA) index = 0;
+            }
+        }
 
         error = poll_HTTP_Server();
         if (error == -1) return EXIT_FAILURE;
@@ -1354,7 +1405,7 @@ int main(int argc, char* argv[])
                 value = atoi(optarg);
                 if (value < 1 || value > 65535) {
                     fprintf(stderr, "Error: Invalid HTTP port number\n");
-                    return EXIT_FAILURE;
+                    return EX_CONFIG;
                 }
                 arg_TCP_Port = (uint16_t)value;  // In range, checked above
                 break;
@@ -1365,7 +1416,7 @@ int main(int argc, char* argv[])
                 arg_MQTT_Port = atoi(optarg);
                 if (arg_MQTT_Port < 1 || arg_MQTT_Port > 65535) {
                     fprintf(stderr, "Error: Invalid MQTT port number\n");
-                    return EXIT_FAILURE;
+                    return EX_CONFIG;
                 }
                 break;
             case 'U':
@@ -1381,7 +1432,7 @@ int main(int argc, char* argv[])
                 value = atoi(optarg);
                 if (value < 0 || value > 255) {
                     fprintf(stderr, "Error: Invalid inverter bus address (0 to 255)\n");
-                    return EXIT_FAILURE;
+                    return EX_CONFIG;
                 }
                 arg_InverterAddr = (uint8_t)value;  // In range, checked above
                 break;
@@ -1396,13 +1447,13 @@ int main(int argc, char* argv[])
                 break;
             case ':':
                 fprintf (stderr, "Option -%c requires an argument.\n", optopt);
-                return EXIT_FAILURE;
+                return EX_CONFIG;
             case '?':
                 if (isprint (optopt))
                     fprintf (stderr, "Unknown option '-%c'.\n", optopt);
                 else
                     fprintf (stderr, "Unknown option character '0x%x'.\n", (unsigned char)optopt);
-                return EXIT_FAILURE;
+                return EX_CONFIG;
             default:
                 abort();
         }
@@ -1419,7 +1470,7 @@ int main(int argc, char* argv[])
     else
     {
         fp_log_file = fopen(arg_LogFile, "a");    // open Log-File
-        if (fp_log_file == NULL) { printf("Main: Error opening Log-File '%s': %s\n", arg_LogFile, strerror(errno)); return EXIT_FAILURE; }
+        if (fp_log_file == NULL) { printf("Main: Error opening Log-File '%s': %s\n", arg_LogFile, strerror(errno)); return EX_CONFIG; }
     }
     if (arg_LogLevel >= LOG_NOTICE) fd_stop_log = fileno(fp_log_file);
 
