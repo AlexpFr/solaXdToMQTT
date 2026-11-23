@@ -1017,20 +1017,16 @@ int init_Serial_Interface(char device[])
         return -1;
     }
     
-    // raw mode
-    tty.c_cflag = CLOCAL | CREAD;  // ignore modem controls
+    // Raw mode, 9600 bauds, 8N1: 8 data bits, no parity (no PARENB),
+    // 1 stop bit (no CSTOPB), no hardware flow control (no CRTSCTS)
+    tty.c_cflag = CLOCAL | CREAD | CS8;  // ignore modem controls, enable the receiver, 8-bit characters
     tty.c_iflag = 0;
     tty.c_oflag = 0;
     tty.c_lflag = 0;
-    
-    // baudrate 9600, 8 bits, no parity, 1 stop bit
-    cfsetospeed(&tty, (speed_t)B9600);
-    cfsetispeed(&tty, (speed_t)B9600);    
-    tty.c_cflag |= CS8;             // 8-bit characters
-    tty.c_cflag &= ~PARENB;         // no parity bit
-    tty.c_cflag &= ~CSTOPB;         // 1 stop bit
-    tty.c_cflag &= ~CRTSCTS;        // no hardware flowcontrol
-    
+
+    cfsetospeed(&tty, (speed_t)B9600);  // Only sets the speed bits
+    cfsetispeed(&tty, (speed_t)B9600);
+
     /* completely non-blocking read */
     tty.c_cc[VMIN] = 0;
     tty.c_cc[VTIME] = 0;
