@@ -63,6 +63,9 @@
 #define TIMEOUT_INVERTER_ONLINE    30                     // in seconds
 #define MAX_INDEX_OF_LIVE_DATA     (QUALITY_OF_SERVICE_COUNT - 1)
 
+#define MQTT_CONNACK_TIMEOUT       5                      // wait for the answer of the broker to a connection request (in seconds)
+#define MQTT_RETRY_INTERVAL        5                      // interval between connection attempts (in seconds)
+
 /*** Macros ********************************************************************************************/
 
 #define lowByte(i)    ( (uint8_t) i )
@@ -133,6 +136,14 @@ typedef struct
     uint32_t ErrorBits;
 } Solax_LiveData_t;
 
+typedef enum
+{
+    MQTT_CONNECTED,     // the broker accepted the connection
+    MQTT_RETRY,         // broker not reachable, no answer, or not ready: worth another attempt
+    MQTT_REFUSED,       // the broker refused the connection (login, password...): another attempt gives the same answer
+    MQTT_STOPPED        // stop requested by a signal during the attempt
+} Mqtt_Attempt_t;
+
 /*** Static Data ******************************************************************************************/
 
 static char*      arg_TTY_Device   = DEFAULT_TTY_DEVICE_NAME;
@@ -161,6 +172,8 @@ static float             solax_QualityOfService = 0;
 static Solax_LiveData_t  solax_LiveData = {0};
 
 struct mosquitto * mosq;
+static int  mqtt_connack   = -1;     // Answer of the broker to the last connection request: -1 = none yet, 0 = accepted, > 0 = refused
+static bool mqtt_connected = false;  // Set by on_connect() and on_disconnect()
 
 // Set to 0 by the signal handler: a volatile sig_atomic_t, an integer type, not a bool
 volatile sig_atomic_t run = 1;
@@ -1069,11 +1082,64 @@ void cleanup(void)
     free(arg_MQTT_Password); arg_MQTT_Password = NULL;
 }
 
+// Called by mosquitto_loop() when the broker answers the connection request (CONNACK): rc = 0 accepted, > 0 refused
+void on_connect(struct mosquitto* client, void* userdata, int rc)
+{
+    (void)client;
+    (void)userdata;
+    mqtt_connack = rc;
+    if (rc == 0) mqtt_connected = true;
+}
+
+// Called by mosquitto_loop() when the connection is closed, whatever the reason
+void on_disconnect(struct mosquitto* client, void* userdata, int rc)
+{
+    (void)client;
+    (void)userdata;
+    (void)rc;
+    mqtt_connected = false;
+}
+
+// One connection attempt: connection to the broker, then wait for its answer (CONNACK) for at most MQTT_CONNACK_TIMEOUT seconds.
+// On MQTT_RETRY and MQTT_REFUSED, *reason describes the failure.
+Mqtt_Attempt_t mqtt_connect_once(const char** reason)
+{
+    int error;
+
+    mqtt_connack = -1;
+    error = mosquitto_connect(mosq, arg_MQTT_Server, arg_MQTT_Port, 60);
+    if (run == 0) return MQTT_STOPPED;
+    if (error != MOSQ_ERR_SUCCESS) {
+        *reason = (error == MOSQ_ERR_ERRNO) ? strerror(errno) : mosquitto_strerror(error);
+        return MQTT_RETRY;
+    }
+
+    // 100 ms steps: mosquitto_loop() returns as soon as the answer has been read
+    for (int j = 0; j < MQTT_CONNACK_TIMEOUT * 10 && mqtt_connack == -1 && run != 0; ++j) {
+        error = mosquitto_loop(mosq, 100, 1);
+        if (error != MOSQ_ERR_SUCCESS) break;  // A refusal is also reported here, after on_connect() has set mqtt_connack
+    }
+    if (run == 0) return MQTT_STOPPED;
+    if (mqtt_connack == 0) return MQTT_CONNECTED;
+    if (mqtt_connack > 0) {
+        *reason = mosquitto_connack_string(mqtt_connack);
+        // 3 = "Server unavailable": the broker is there but not ready, the other refusals need a change of the settings
+        return (mqtt_connack == 3) ? MQTT_RETRY : MQTT_REFUSED;
+    }
+    if (error != MOSQ_ERR_SUCCESS) {
+        *reason = (error == MOSQ_ERR_ERRNO) ? strerror(errno) : mosquitto_strerror(error);
+    } else {
+        *reason = "no answer from the broker";
+    }
+    return MQTT_RETRY;
+}
+
 int init_mqtt()
-{   
+{
     int error;
     int max_retries = 12; // Maximum number of connection retries
-    unsigned int retry_interval = 5; // Interval between connection retries in seconds, type expected by sleep()
+    unsigned int retry_interval = MQTT_RETRY_INTERVAL; // Type expected by sleep()
+    const char* reason = "";
 
     error = mosquitto_lib_init();
     if (error != MOSQ_ERR_SUCCESS) {
@@ -1092,25 +1158,24 @@ int init_mqtt()
         return -1;
     }
 
+    mosquitto_connect_callback_set(mosq, on_connect);
+    mosquitto_disconnect_callback_set(mosq, on_disconnect);
+
     // Connection retries
     for (int i = 0; i < max_retries && run != 0; ++i) {
-        error = mosquitto_connect(mosq, arg_MQTT_Server, arg_MQTT_Port, 60);
-        for (int j = 0; j < 10 && error == MOSQ_ERR_SUCCESS && run != 0; ++j) {
-            error = mosquitto_loop(mosq,0,1);
-            usleep(100000);  // Wait 100 ms
-        }
-        if (run == 0) {
+        Mqtt_Attempt_t attempt = mqtt_connect_once(&reason);
+        if (attempt == MQTT_STOPPED) {
             break;  // Stop requested during the connection attempt
         }
-        if (error == MOSQ_ERR_SUCCESS) {
-            NOTICE_MESSAGE("Init MQTT: We are now connected and logged to the broker");
+        if (attempt == MQTT_CONNECTED) {
+            NOTICE_MESSAGE("Init MQTT: Connected, the broker accepted the connection");
             return 0;
-        } else if (error == MOSQ_ERR_CONN_REFUSED) {
-            ERROR_MESSAGE("Init MQTT: No logged, verify login and password - Error Code: %d", error);
+        } else if (attempt == MQTT_REFUSED) {
+            ERROR_MESSAGE("Init MQTT: The broker refused the connection: %s", reason);
             return -1;
         } else if (i < max_retries - 1) {
-            ERROR_MESSAGE("MQTT broker is not reachable : verify your connection, server name and port - Error Code: %d", error);
-                NOTICE_MESSAGE("Retrying connection in %d seconds...", retry_interval);
+            ERROR_MESSAGE("Init MQTT: Broker not reachable: %s", reason);
+            NOTICE_MESSAGE("Retrying connection in %u seconds...", retry_interval);
             sleep(retry_interval);
         } else {
             ERROR_MESSAGE("Maximum retries reached: Exiting");
