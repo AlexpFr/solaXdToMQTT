@@ -136,10 +136,11 @@ typedef struct
 static char*      arg_TTY_Device   = DEFAULT_TTY_DEVICE_NAME;
 static int        arg_TCP_Port     = DEFAULT_TCP_PORT;
 
-static char*      arg_MQTT_Server   = DEFAULT_MQTT_SERVER;
+// Always copies owned by the program (set in main(), freed by cleanup()), never string literals
+static char*      arg_MQTT_Server   = NULL;
 static int        arg_MQTT_Port     = DEFAULT_MQTT_PORT;
-static char*      arg_MQTT_Login    = DEFAULT_MQTT_LOGIN;
-static char*      arg_MQTT_Password = DEFAULT_MQTT_PASSWORD;
+static char*      arg_MQTT_Login    = NULL;
+static char*      arg_MQTT_Password = NULL;
 
 
 static int        arg_AV_Samples   = DEFAULT_AVERAGE_SAMPLES;
@@ -1060,6 +1061,9 @@ void cleanup(void)
         fclose(fp_log_file);
         fp_log_file = NULL;
     }
+    free(arg_MQTT_Server);   arg_MQTT_Server   = NULL;
+    free(arg_MQTT_Login);    arg_MQTT_Login    = NULL;
+    free(arg_MQTT_Password); arg_MQTT_Password = NULL;
 }
 
 int init_mqtt()
@@ -1164,8 +1168,10 @@ int main(int argc, char* argv[])
     }
 
     int opt;
-    bool login_from_U = false;
-    bool password_from_W = false;
+    // Values given on the command line: pointers into argv, copied once after parsing
+    const char* opt_server = NULL;
+    const char* opt_login = NULL;
+    const char* opt_password = NULL;
 
     if ((argc == 2) && (strcmp(argv[1], "--version") == 0))
     {
@@ -1209,7 +1215,7 @@ int main(int argc, char* argv[])
                 arg_TCP_Port = atoi(optarg);
                 break;
             case 'S':
-                arg_MQTT_Server = strdup(optarg);
+                opt_server = optarg;
                 break;
             case 'P':
                 arg_MQTT_Port = atoi(optarg);
@@ -1219,12 +1225,10 @@ int main(int argc, char* argv[])
                 }
                 break;
             case 'U':
-                arg_MQTT_Login = strdup(optarg);
-                login_from_U = true;
+                opt_login = optarg;
                 break;
             case 'W':
-                arg_MQTT_Password = strdup(optarg);
-                password_from_W = true;
+                opt_password = optarg;
                 break;
             case 's':
                 arg_AV_Samples = atoi(optarg);
@@ -1256,15 +1260,9 @@ int main(int argc, char* argv[])
     }
     
     // Login and password from the environment (e.g. EnvironmentFile of the systemd unit), unless -U or -W is given
-    if (!login_from_U) {
-        const char* env_login = getenv("SOLAXD_MQTT_LOGIN");
-        if (env_login != NULL) arg_MQTT_Login = strdup(env_login);
-    }
-    if (!password_from_W) {
-        const char* env_password = getenv("SOLAXD_MQTT_PASSWORD");
-        if (env_password != NULL) arg_MQTT_Password = strdup(env_password);
-    }
-    
+    if (opt_login == NULL) opt_login = getenv("SOLAXD_MQTT_LOGIN");
+    if (opt_password == NULL) opt_password = getenv("SOLAXD_MQTT_PASSWORD");
+
     if (arg_LogFile == NULL)
     {
         fp_log_file = stderr;
@@ -1286,7 +1284,17 @@ int main(int argc, char* argv[])
     INFO_MESSAGE("Main: LogLevel     : %d", arg_LogLevel    );
     INFO_MESSAGE("Main: TestMode     : %d", arg_TestMode    );
     
-    int exit_code = run_daemon();  // Every return of run_daemon() goes through cleanup()
+    // Copied here, after the last early return, so that every copy is freed by cleanup()
+    arg_MQTT_Server   = strdup(opt_server   != NULL ? opt_server   : DEFAULT_MQTT_SERVER);
+    arg_MQTT_Login    = strdup(opt_login    != NULL ? opt_login    : DEFAULT_MQTT_LOGIN);
+    arg_MQTT_Password = strdup(opt_password != NULL ? opt_password : DEFAULT_MQTT_PASSWORD);
+
+    int exit_code = EXIT_FAILURE;
+    if (arg_MQTT_Server == NULL || arg_MQTT_Login == NULL || arg_MQTT_Password == NULL) {
+        ERROR_MESSAGE("Main: Out of memory while copying the MQTT settings");
+    } else {
+        exit_code = run_daemon();  // Every return of run_daemon() goes through cleanup()
+    }
     cleanup();
     return exit_code;
 }
