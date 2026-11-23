@@ -20,6 +20,7 @@
 /*********************************************************************************************/
 
 #include <stdint.h>
+#include <inttypes.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -467,12 +468,28 @@ Solax_ErrorQuery_t solax_SendQuery(const Solax_StateQuery_t stateQuery)
 }
 
 
+// Publishes an integer value of the inverter (retained message) as a number with the given count of decimals (0 to 2).
+// The text is built from the integer itself, without going through a float: 2406 with 1 decimal gives "240.6".
+void publish_scaled(const char* topic, uint32_t raw, unsigned int decimals)
+{
+    static const uint32_t divisors[] = {1, 10, 100};
+    char buff[16];  // Large enough for "4294967295" and a decimal point
+    int len;
+
+    if (decimals == 0)
+        len = snprintf(buff, sizeof(buff), "%" PRIu32, raw);
+    else
+        len = snprintf(buff, sizeof(buff), "%" PRIu32 ".%0*" PRIu32, raw / divisors[decimals], (int)decimals, raw % divisors[decimals]);
+
+    mosquitto_publish(mosq, NULL, topic, len, buff, 0, true);
+}
+
+
 Solax_ErrorQuery_t solax_ReceiveQuery(const Solax_StateQuery_t stateQuery, Solax_LiveData_t* liveData)
 {
     static Solax_Message_t rxMessage;
 
     uint32_t value;
-    char publish_buff[16] = {0};
     Solax_ErrorQuery_t error;
         
     error = solax_RS485_Receive(&rxMessage);
@@ -547,85 +564,71 @@ Solax_ErrorQuery_t solax_ReceiveQuery(const Solax_StateQuery_t stateQuery, Solax
                 value = (rxMessage.Data[0] << 8) | rxMessage.Data[1]; // Temperature [�C]
                 liveData->Temperature = value;
                 DEBUG_MESSAGE("Solax: LiveData.Temperature: %.0f C", liveData->Temperature);
-                snprintf(publish_buff, sizeof(publish_buff), "%.2f", liveData->Temperature);
-                mosquitto_publish(mosq, NULL, "solax/Temperature", strlen(publish_buff), publish_buff , 0, true);
+                publish_scaled("solax/Temperature", value, 0);
                 
                 value = (rxMessage.Data[2] << 8) | rxMessage.Data[3]; // Energy Today [kWh]
                 liveData->Energy_Today = value * 0.1f;
                 DEBUG_MESSAGE("Solax: LiveData.Energy_Today: %.1f kWh", liveData->Energy_Today);
-                snprintf(publish_buff, sizeof(publish_buff), "%.2f", liveData->Energy_Today);
-                mosquitto_publish(mosq, NULL, "solax/Energy_Today", strlen(publish_buff), publish_buff , 0, true);
+                publish_scaled("solax/Energy_Today", value, 1);
                 
                 value = (rxMessage.Data[4] << 8) | rxMessage.Data[5]; // PV1 Voltage [V]
                 liveData->DC1_Voltage = value * 0.1f;
                 DEBUG_MESSAGE("Solax: LiveData.DC1_Voltage: %.1f V", liveData->DC1_Voltage);
-                snprintf(publish_buff, sizeof(publish_buff), "%.2f", liveData->DC1_Voltage);
-                mosquitto_publish(mosq, NULL, "solax/DC1_Voltage", strlen(publish_buff), publish_buff , 0, true);
+                publish_scaled("solax/DC1_Voltage", value, 1);
                 
                 value = (rxMessage.Data[6] << 8) | rxMessage.Data[7]; // PV2 Voltage [V]
                 liveData->DC2_Voltage = value * 0.1f;
                 DEBUG_MESSAGE("Solax: LiveData.DC2_Voltage: %.1f V", liveData->DC2_Voltage);
-                snprintf(publish_buff, sizeof(publish_buff), "%.2f", liveData->DC2_Voltage);
-                mosquitto_publish(mosq, NULL, "solax/DC2_Voltage", strlen(publish_buff), publish_buff , 0, true);
+                publish_scaled("solax/DC2_Voltage", value, 1);
                 
                 value = (rxMessage.Data[8] << 8) | rxMessage.Data[9]; // PV1 Current [A]
                 liveData->DC1_Current = value * 0.1f;
                 DEBUG_MESSAGE("Solax: LiveData.DC1_Current: %.1f A", liveData->DC1_Current);
-                snprintf(publish_buff, sizeof(publish_buff), "%.2f", liveData->DC1_Current);
-                mosquitto_publish(mosq, NULL, "solax/DC1_Current", strlen(publish_buff), publish_buff , 0, true);
+                publish_scaled("solax/DC1_Current", value, 1);
                 
                 value = (rxMessage.Data[10] << 8) | rxMessage.Data[11]; // PV2 Current [A]
                 liveData->DC2_Current = value * 0.1f;
                 DEBUG_MESSAGE("Solax: LiveData.DC2_Current: %.1f A", liveData->DC2_Current);
-                snprintf(publish_buff, sizeof(publish_buff), "%.2f", liveData->DC2_Current);
-                mosquitto_publish(mosq, NULL, "solax/DC2_Current", strlen(publish_buff), publish_buff , 0, true);
+                publish_scaled("solax/DC2_Current", value, 1);
                 
                 value = (rxMessage.Data[12] << 8) | rxMessage.Data[13]; // AC Current [A]
                 liveData->AC_Current = value * 0.1f;
                 DEBUG_MESSAGE("Solax: LiveData.AC_Current: %.1f A", liveData->AC_Current);
-                snprintf(publish_buff, sizeof(publish_buff), "%.2f", liveData->AC_Current);
-                mosquitto_publish(mosq, NULL, "solax/AC_Current", strlen(publish_buff), publish_buff , 0, true);
+                publish_scaled("solax/AC_Current", value, 1);
                 
                 value = (rxMessage.Data[14] << 8) | rxMessage.Data[15]; // AC Voltage [V]
                 liveData->AC_Voltage = value * 0.1f;
                 DEBUG_MESSAGE("Solax: LiveData.AC_Voltage: %.1f V", liveData->AC_Voltage);
-                snprintf(publish_buff, sizeof(publish_buff), "%.2f", liveData->AC_Voltage);
-                mosquitto_publish(mosq, NULL, "solax/AC_Voltage", strlen(publish_buff), publish_buff , 0, true);
+                publish_scaled("solax/AC_Voltage", value, 1);
                 
                 value = (rxMessage.Data[16] << 8) | rxMessage.Data[17]; // AC Frequency [Hz]
                 liveData->Frequency = value * 0.01f;
                 DEBUG_MESSAGE("Solax: LiveData.Frequency: %.2f Hz", liveData->Frequency);
-                snprintf(publish_buff, sizeof(publish_buff), "%.2f", liveData->Frequency);
-                mosquitto_publish(mosq, NULL, "solax/Frequency", strlen(publish_buff), publish_buff , 0, true);
+                publish_scaled("solax/Frequency", value, 2);
                 
                 value = (rxMessage.Data[18] << 8) | rxMessage.Data[19]; // AC Power [W]
                 liveData->Power = value;
                 DEBUG_MESSAGE("Solax: LiveData.Power: %.0f W", liveData->Power);
-                snprintf(publish_buff, sizeof(publish_buff), "%.2f", liveData->Power);
-                mosquitto_publish(mosq, NULL, "solax/Power", strlen(publish_buff), publish_buff , 0, true);
+                publish_scaled("solax/Power", value, 0);
                 
                 //value = (rxMessage.Data[20] << 8) | rxMessage.Data[21]; // Not Used
                 //DEBUG_MESSAGE("Solax: LiveData.Not_Used: %.1f kWh", value);
-                //snprintf(publish_buff, sizeof(publish_buff), "%u", value);
-                //mosquitto_publish(mosq, NULL, "solax/Not_Used", strlen(publish_buff), publish_buff , 0, true);
+                //publish_scaled("solax/Not_Used", value, 0);
                 
                 value = (rxMessage.Data[22] << 24) | (rxMessage.Data[23] << 16) | (rxMessage.Data[24] << 8) | rxMessage.Data[25]; // Energy Total [kWh]
                 if (value) {liveData->Energy_Total = value * 0.1f;}
                 DEBUG_MESSAGE("Solax: LiveData.Energy_Total: %.1f kWh", liveData->Energy_Total);
-                snprintf(publish_buff, sizeof(publish_buff), "%.2f", liveData->Energy_Total);
-                mosquitto_publish(mosq, NULL, "solax/Energy_Total", strlen(publish_buff), publish_buff , 0, true);
+                publish_scaled("solax/Energy_Total", value, 1);
                 
                 value = (rxMessage.Data[26] << 24) | (rxMessage.Data[27] << 16) | (rxMessage.Data[28] << 8) | rxMessage.Data[29]; // Work Time Total [hour]
                 if (value) {liveData->Runtime_Total = value;}
                 DEBUG_MESSAGE("Solax: LiveData.Runtime_Total: %.0f h", liveData->Runtime_Total);
-                snprintf(publish_buff, sizeof(publish_buff), "%.2f", liveData->Runtime_Total);
-                mosquitto_publish(mosq, NULL, "solax/Runtime_Total", strlen(publish_buff), publish_buff , 0, true);
+                publish_scaled("solax/Runtime_Total", value, 0);
                 
                 value = (rxMessage.Data[30] << 8) | rxMessage.Data[31]; // Work mode [???]
                 liveData->Status = (uint8_t)value;
                 DEBUG_MESSAGE("Solax: LiveData.Status: %d", liveData->Status);
-                snprintf(publish_buff, sizeof(publish_buff), "%u", liveData->Status);
-                mosquitto_publish(mosq, NULL, "solax/Status", strlen(publish_buff), publish_buff , 0, true);
+                publish_scaled("solax/Status", liveData->Status, 0);
                 
                 //value = (rxMessage.Data[32] << 8) | rxMessage.Data[33]; // Grid voltage fault in 0.1V
                 //value = (rxMessage.Data[34] << 8) | rxMessage.Data[35]; // Gird frequency fault in 0.01Hz
