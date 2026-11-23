@@ -158,7 +158,8 @@ static Solax_LiveData_t  solax_LiveData = {0};
 
 struct mosquitto * mosq;
 
-volatile sig_atomic_t run = true;
+// Set to 0 by the signal handler: a volatile sig_atomic_t, an integer type, not a bool
+volatile sig_atomic_t run = 1;
 volatile sig_atomic_t fd_stop_log = -1;  // Log file descriptor for the signal handler, -1 = no trace
 
 /*** Functions ******************************************************************************************/
@@ -171,7 +172,7 @@ void handle_stop(int sig) {
         if (fd_stop_log != -1) write(fd_stop_log, msg, sizeof(msg) - 1);
         _exit(EXIT_SUCCESS); // Timeout elapsed while the program is still blocked in a call
     }
-    run = false;
+    run = 0;
     alarm(2); // 2 seconds timeout to exit through the normal path
 }
 
@@ -1040,13 +1041,13 @@ int init_mqtt()
     mosquitto_username_pw_set(mosq, arg_MQTT_Login, arg_MQTT_Password);
 
     // Connection retries
-    for (int i = 0; i < max_retries && run == true; ++i) {
+    for (int i = 0; i < max_retries && run != 0; ++i) {
         error = mosquitto_connect(mosq, arg_MQTT_Server, arg_MQTT_Port, 60);
-        for (int j = 0; j < 10 && error == MOSQ_ERR_SUCCESS && run == true; ++j) {
+        for (int j = 0; j < 10 && error == MOSQ_ERR_SUCCESS && run != 0; ++j) {
             error = mosquitto_loop(mosq,0,1);
-            usleep(100000);  // Attendre 1000 microseconde
+            usleep(100000);  // Wait 100 ms
         }
-        if (run == false) {
+        if (run == 0) {
             break;  // Stop requested during the connection attempt
         }
         if (error == MOSQ_ERR_SUCCESS) {
@@ -1215,12 +1216,12 @@ int main(int argc, char* argv[])
     if (error == -1) return EXIT_FAILURE;
     
     error = init_mqtt();                            // connect to MQTT server
-    if (error == -1) return (run == false) ? EXIT_SUCCESS : EXIT_FAILURE;  // stop requested during the connection: normal stop
+    if (error == -1) return (run == 0) ? EXIT_SUCCESS : EXIT_FAILURE;  // stop requested during the connection: normal stop
 
     error = init_HTTP_Server(arg_TCP_Port);         // open TCP-Listener
     if (error == -1) return EXIT_FAILURE;
     
-    while (run == true)
+    while (run != 0)
     {
         error = mosquitto_loop(mosq,0,1);  // No wait: sleep(1) alone sets the 1 second period of the loop
         if (error != MOSQ_ERR_SUCCESS) {
