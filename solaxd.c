@@ -192,15 +192,15 @@ void getDateTime(char dateTimeStr[])
 {
     struct timespec timeNow;
     struct tm* infoTimeNow;
-    int miliSec;
+    long miliSec;  // Type of tv_nsec
 
     clock_gettime(CLOCK_REALTIME, &timeNow);
     infoTimeNow = localtime(&timeNow.tv_sec);
-    miliSec = timeNow.tv_nsec / 1e6;
+    miliSec = timeNow.tv_nsec / 1000000;  // Integer division: 0 to 999
 
     // build time string: "yyyy-MM-DD hh:mm:ss.sss\0"   (len = 24)
     strftime(dateTimeStr, 20, "%Y-%m-%d %H:%M:%S", infoTimeNow);
-    sprintf(&dateTimeStr[19], ".%03d", miliSec);
+    sprintf(&dateTimeStr[19], ".%03ld", miliSec);
 }
 
 
@@ -241,10 +241,10 @@ void log_Message(int level, FILE* fp, const char fmt[], ...)
 
 
 
-int log_Bin2Hex(char buff[], const uint8_t data[], const uint8_t dataLen)
+int log_Bin2Hex(char buff[], const uint8_t data[], const size_t dataLen)
 {
     unsigned int x;
-    int i;
+    size_t i;
     int len = 0;
     
     if (dataLen)
@@ -348,7 +348,7 @@ Solax_ErrorQuery_t solax_RS485_Receive(Solax_Message_t* rxMessage)
     if (arg_LogLevel >= LOG_TRACE)
     {
         char buff[(3 * sizeof(Solax_Message_t)) + (sizeof(Solax_Message_t) / 8) + 3];
-        log_Bin2Hex(buff, (const uint8_t*)rxMessage, rxLen);
+        log_Bin2Hex(buff, (const uint8_t*)rxMessage, (size_t)rxLen);  // rxLen >= 0: the error case returned above
         TRACE_MESSAGE("ComRx:%s", buff);
     }
     
@@ -1074,7 +1074,7 @@ int init_mqtt()
 {   
     int error;
     int max_retries = 12; // Maximum number of connection retries
-    int retry_interval = 5; // Interval between connection retries in seconds
+    unsigned int retry_interval = 5; // Interval between connection retries in seconds, type expected by sleep()
 
     mosquitto_lib_init();
     mosq = mosquitto_new("solaXdtoMQTT", true, NULL);
