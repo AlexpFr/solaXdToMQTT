@@ -136,7 +136,7 @@ typedef struct
 /*** Static Data ******************************************************************************************/
 
 static char*      arg_TTY_Device   = DEFAULT_TTY_DEVICE_NAME;
-static int        arg_TCP_Port     = DEFAULT_TCP_PORT;
+static uint16_t   arg_TCP_Port     = DEFAULT_TCP_PORT;
 
 // Always copies owned by the program (set in main(), freed by cleanup()), never string literals
 static char*      arg_MQTT_Server   = NULL;
@@ -146,7 +146,7 @@ static char*      arg_MQTT_Password = NULL;
 
 
 static int        arg_AV_Samples   = DEFAULT_AVERAGE_SAMPLES;
-static int        arg_InverterAddr = DEFAULT_INVERTER_ADDRESS;
+static uint8_t    arg_InverterAddr = DEFAULT_INVERTER_ADDRESS;
 static char*      arg_LogFile      = DEFAULT_LOG_FILE;
 static logLevel_t arg_LogLevel     = DEFAULT_LOG_LEVEL;
 static int        arg_TestMode     = DEFAULT_TEST_MODE;
@@ -969,7 +969,7 @@ int poll_HTTP_Server(void)
 }
 
 
-int init_HTTP_Server(int port)
+int init_HTTP_Server(uint16_t port)
 {
     int error;
     int flags;
@@ -1172,6 +1172,7 @@ int main(int argc, char* argv[])
     }
 
     int opt;
+    int value;  // Numeric option checked before being stored in a smaller type
     // Values given on the command line: pointers into argv, copied once after parsing
     const char* opt_server = NULL;
     const char* opt_login = NULL;
@@ -1216,7 +1217,12 @@ int main(int argc, char* argv[])
                 arg_TTY_Device = optarg;
                 break;
             case 'p':
-                arg_TCP_Port = atoi(optarg);
+                value = atoi(optarg);
+                if (value < 1 || value > 65535) {
+                    fprintf(stderr, "Error: Invalid HTTP port number\n");
+                    return EXIT_FAILURE;
+                }
+                arg_TCP_Port = (uint16_t)value;  // In range, checked above
                 break;
             case 'S':
                 opt_server = optarg;
@@ -1238,7 +1244,12 @@ int main(int argc, char* argv[])
                 arg_AV_Samples = atoi(optarg);
                 break;
             case 'a':
-                arg_InverterAddr = atoi(optarg);
+                value = atoi(optarg);
+                if (value < 0 || value > 255) {
+                    fprintf(stderr, "Error: Invalid inverter bus address (0 to 255)\n");
+                    return EXIT_FAILURE;
+                }
+                arg_InverterAddr = (uint8_t)value;  // In range, checked above
                 break;
             case 'l':
                 arg_LogFile = optarg;
