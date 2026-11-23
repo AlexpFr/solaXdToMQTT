@@ -164,6 +164,8 @@ struct mosquitto * mosq;
 
 // Set to 0 by the signal handler: a volatile sig_atomic_t, an integer type, not a bool
 volatile sig_atomic_t run = 1;
+// Number of the stop signal received (SIGINT or SIGTERM), written by the signal handler for the stop trace, 0 = none
+volatile sig_atomic_t stop_signal = 0;
 // Log file descriptor read by the signal handler, -1 = no trace: a lock-free atomic, so that the handler may read it
 atomic_int fd_stop_log = -1;
 _Static_assert(ATOMIC_INT_LOCK_FREE == 2, "fd_stop_log must be lock-free to be read by the signal handler");
@@ -183,6 +185,7 @@ void handle_stop(int sig) {
         }
         _exit(EXIT_SUCCESS); // Timeout elapsed while the program is still blocked in a call
     }
+    stop_signal = sig;
     run = 0;
     alarm(2); // 2 seconds timeout to exit through the normal path
     errno = saved_errno;
@@ -1103,7 +1106,7 @@ int init_mqtt()
     }
 
     // Stop requested before the connection was established
-    NOTICE_MESSAGE("Init MQTT: Stop requested by signal during connection, exiting");
+    NOTICE_MESSAGE("Init MQTT: Stop requested by signal %d (%s) during connection, exiting", (int)stop_signal, strsignal((int)stop_signal));
     return -1;
 }
 
@@ -1145,7 +1148,7 @@ int run_daemon(void)
 
         sleep(1);
     }
-    NOTICE_MESSAGE("Main: Stop requested by signal, exiting");
+    NOTICE_MESSAGE("Main: Stop requested by signal %d (%s), exiting", (int)stop_signal, strsignal((int)stop_signal));
     return EXIT_SUCCESS;
 }
 
