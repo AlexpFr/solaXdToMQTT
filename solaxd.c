@@ -949,7 +949,15 @@ int poll_HTTP_Server(void)
         len += sprintf(&response[len], "\r\n");
         len += solax_JsonPath(&response[len], &solax_LiveData);
 
-        write(fd_sock_client, response, len);
+        ssize_t written = write(fd_sock_client, response, len);
+        if (written < 0)
+        {
+            ERROR_MESSAGE("Http: Error sending the response: %s", strerror(errno));
+        }
+        else if (written != len)
+        {
+            ERROR_MESSAGE("Http: Response truncated: %zd of %d bytes sent", written, len);
+        }
         close(fd_sock_client);
     }
     return 0;
@@ -1090,7 +1098,12 @@ int main(int argc, char* argv[])
     struct sigaction sa = {0};
     sa.sa_handler = handle_stop;
     sigemptyset(&sa.sa_mask);
-    if (sigaction(SIGINT, &sa, NULL) == -1 || sigaction(SIGTERM, &sa, NULL) == -1 || sigaction(SIGALRM, &sa, NULL) == -1) {
+    // SIGPIPE ignored: writing to an HTTP client that has closed the connection fails with EPIPE instead of killing the program
+    struct sigaction sa_ignore = {0};
+    sa_ignore.sa_handler = SIG_IGN;
+    sigemptyset(&sa_ignore.sa_mask);
+    if (sigaction(SIGINT, &sa, NULL) == -1 || sigaction(SIGTERM, &sa, NULL) == -1 || sigaction(SIGALRM, &sa, NULL) == -1 ||
+        sigaction(SIGPIPE, &sa_ignore, NULL) == -1) {
         perror("Error configuring signal handler");
         return EXIT_FAILURE;
     }
