@@ -20,6 +20,7 @@
 /*********************************************************************************************/
 
 #include <stdint.h>
+#include <inttypes.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -115,18 +116,19 @@ typedef struct
 typedef struct
 {
     bool valid;
-    float Temperature;
-    float Energy_Today;
-    float DC1_Voltage;
-    float DC2_Voltage;
-    float DC1_Current;
-    float DC2_Current;
-    float AC_Current;
-    float AC_Voltage;
-    float Frequency;
-    float Power;
-    float Energy_Total;
-    float Runtime_Total;
+    // double: holds every uint32_t value of the inverter exactly, which float does not above 2^24
+    double Temperature;
+    double Energy_Today;
+    double DC1_Voltage;
+    double DC2_Voltage;
+    double DC1_Current;
+    double DC2_Current;
+    double AC_Current;
+    double AC_Voltage;
+    double Frequency;
+    double Power;
+    double Energy_Total;
+    double Runtime_Total;
     uint8_t Status;
     uint32_t ErrorBits;
 } Solax_LiveData_t;
@@ -134,7 +136,7 @@ typedef struct
 /*** Static Data ******************************************************************************************/
 
 static char*      arg_TTY_Device   = DEFAULT_TTY_DEVICE_NAME;
-static int        arg_TCP_Port     = DEFAULT_TCP_PORT;
+static uint16_t   arg_TCP_Port     = DEFAULT_TCP_PORT;
 
 // Always copies owned by the program (set in main(), freed by cleanup()), never string literals
 static char*      arg_MQTT_Server   = NULL;
@@ -144,7 +146,7 @@ static char*      arg_MQTT_Password = NULL;
 
 
 static int        arg_AV_Samples   = DEFAULT_AVERAGE_SAMPLES;
-static int        arg_InverterAddr = DEFAULT_INVERTER_ADDRESS;
+static uint8_t    arg_InverterAddr = DEFAULT_INVERTER_ADDRESS;
 static char*      arg_LogFile      = DEFAULT_LOG_FILE;
 static logLevel_t arg_LogLevel     = DEFAULT_LOG_LEVEL;
 static int        arg_TestMode     = DEFAULT_TEST_MODE;
@@ -190,15 +192,15 @@ void getDateTime(char dateTimeStr[])
 {
     struct timespec timeNow;
     struct tm* infoTimeNow;
-    int miliSec;
+    long miliSec;  // Type of tv_nsec
 
     clock_gettime(CLOCK_REALTIME, &timeNow);
     infoTimeNow = localtime(&timeNow.tv_sec);
-    miliSec = timeNow.tv_nsec / 1e6;
+    miliSec = timeNow.tv_nsec / 1000000;  // Integer division: 0 to 999
 
     // build time string: "yyyy-MM-DD hh:mm:ss.sss\0"   (len = 24)
     strftime(dateTimeStr, 20, "%Y-%m-%d %H:%M:%S", infoTimeNow);
-    sprintf(&dateTimeStr[19], ".%03d", miliSec);
+    sprintf(&dateTimeStr[19], ".%03ld", miliSec);
 }
 
 
@@ -239,10 +241,10 @@ void log_Message(int level, FILE* fp, const char fmt[], ...)
 
 
 
-int log_Bin2Hex(char buff[], const uint8_t data[], const uint8_t dataLen)
+int log_Bin2Hex(char buff[], const uint8_t data[], const size_t dataLen)
 {
     unsigned int x;
-    int i;
+    size_t i;
     int len = 0;
     
     if (dataLen)
@@ -280,7 +282,7 @@ uint16_t solax_CalculateCRC(const uint8_t data[], const uint8_t dataLen)
 
 Solax_ErrorQuery_t solax_RS485_Send(Solax_Message_t* txMessage)
 {
-    int txLen;
+    ssize_t txLen;  // Type returned by write()
     uint8_t msgLen;
     uint16_t crc;
     
@@ -316,7 +318,7 @@ Solax_ErrorQuery_t solax_RS485_Send(Solax_Message_t* txMessage)
 
 Solax_ErrorQuery_t solax_RS485_Receive(Solax_Message_t* rxMessage)
 {
-    int rxLen; // read length
+    ssize_t rxLen; // read length, type returned by read()
     uint8_t msgLen;
     uint16_t crc;
     
@@ -330,10 +332,10 @@ Solax_ErrorQuery_t solax_RS485_Receive(Solax_Message_t* rxMessage)
         static const uint8_t rx_msg_2[] = {0xAA, 0x55, 0x00, 0x0A, 0x00, 0x00, 0x10, 0x81, 0x01, 0x06, 0x01, 0xA1};
         static const uint8_t rx_msg_3[] = {0xAA, 0x55, 0x00, 0x0A, 0x01, 0x00, 0x11, 0x82, 0x32, 0x00, 0x0B, 0x00, 0x01, 0x06, 0xDD, 0x00, 0x00, 0x00, 0x1F, 0x00, 0x00, 0x00, 0x15, 0x09, 0x21, 0x13, 0x87, 0x01, 0xE7, 0xFF, 0xFF, 0x00, 0x00, 0x12, 0xD3, 0x00, 0x00, 0x0A, 0x0F, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x9C};
         static const uint8_t rx_msg_4[] = {0xAA, 0x55, 0x00, 0x0A, 0x01, 0x00, 0x11, 0x82, 0x32, 0x00, 0x0B, 0x00, 0x01, 0x06, 0xCB, 0x00, 0x00, 0x00, 0x1E, 0x00, 0x00, 0x00, 0x14, 0x09, 0x22, 0x13, 0x89, 0x01, 0xD7, 0xFF, 0xFF, 0x00, 0x00, 0x12, 0xD3, 0x00, 0x00, 0x0A, 0x0F, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x7B};
-        if (x == 1) {rxLen = sizeof(rx_msg_1); memcpy(rxMessage, rx_msg_1, rxLen);}
-        if (x == 2) {rxLen = sizeof(rx_msg_2); memcpy(rxMessage, rx_msg_2, rxLen);}
-        if (x == 3) {rxLen = sizeof(rx_msg_3); memcpy(rxMessage, rx_msg_3, rxLen);}
-        if (x == 4) {rxLen = sizeof(rx_msg_4); memcpy(rxMessage, rx_msg_4, rxLen);}
+        if (x == 1) {rxLen = sizeof(rx_msg_1); memcpy(rxMessage, rx_msg_1, sizeof(rx_msg_1));}
+        if (x == 2) {rxLen = sizeof(rx_msg_2); memcpy(rxMessage, rx_msg_2, sizeof(rx_msg_2));}
+        if (x == 3) {rxLen = sizeof(rx_msg_3); memcpy(rxMessage, rx_msg_3, sizeof(rx_msg_3));}
+        if (x == 4) {rxLen = sizeof(rx_msg_4); memcpy(rxMessage, rx_msg_4, sizeof(rx_msg_4));}
         x++; if (x > 4) {x = 3;}
     }
     
@@ -346,7 +348,7 @@ Solax_ErrorQuery_t solax_RS485_Receive(Solax_Message_t* rxMessage)
     if (arg_LogLevel >= LOG_TRACE)
     {
         char buff[(3 * sizeof(Solax_Message_t)) + (sizeof(Solax_Message_t) / 8) + 3];
-        log_Bin2Hex(buff, (const uint8_t*)rxMessage, rxLen);
+        log_Bin2Hex(buff, (const uint8_t*)rxMessage, (size_t)rxLen);  // rxLen >= 0: the error case returned above
         TRACE_MESSAGE("ComRx:%s", buff);
     }
     
@@ -467,12 +469,28 @@ Solax_ErrorQuery_t solax_SendQuery(const Solax_StateQuery_t stateQuery)
 }
 
 
+// Publishes an integer value of the inverter (retained message) as a number with the given count of decimals (0 to 2).
+// The text is built from the integer itself, without going through a float: 2406 with 1 decimal gives "240.6".
+void publish_scaled(const char* topic, uint32_t raw, unsigned int decimals)
+{
+    static const uint32_t divisors[] = {1, 10, 100};
+    char buff[16];  // Large enough for "4294967295" and a decimal point
+    int len;
+
+    if (decimals == 0)
+        len = snprintf(buff, sizeof(buff), "%" PRIu32, raw);
+    else
+        len = snprintf(buff, sizeof(buff), "%" PRIu32 ".%0*" PRIu32, raw / divisors[decimals], (int)decimals, raw % divisors[decimals]);
+
+    mosquitto_publish(mosq, NULL, topic, len, buff, 0, true);
+}
+
+
 Solax_ErrorQuery_t solax_ReceiveQuery(const Solax_StateQuery_t stateQuery, Solax_LiveData_t* liveData)
 {
     static Solax_Message_t rxMessage;
 
     uint32_t value;
-    char publish_buff[16] = {0};
     Solax_ErrorQuery_t error;
         
     error = solax_RS485_Receive(&rxMessage);
@@ -547,85 +565,71 @@ Solax_ErrorQuery_t solax_ReceiveQuery(const Solax_StateQuery_t stateQuery, Solax
                 value = (rxMessage.Data[0] << 8) | rxMessage.Data[1]; // Temperature [�C]
                 liveData->Temperature = value;
                 DEBUG_MESSAGE("Solax: LiveData.Temperature: %.0f C", liveData->Temperature);
-                snprintf(publish_buff, sizeof(publish_buff), "%.2f", liveData->Temperature);
-                mosquitto_publish(mosq, NULL, "solax/Temperature", strlen(publish_buff), publish_buff , 0, true);
+                publish_scaled("solax/Temperature", value, 0);
                 
                 value = (rxMessage.Data[2] << 8) | rxMessage.Data[3]; // Energy Today [kWh]
-                liveData->Energy_Today = value * 0.1f;
+                liveData->Energy_Today = value * 0.1;
                 DEBUG_MESSAGE("Solax: LiveData.Energy_Today: %.1f kWh", liveData->Energy_Today);
-                snprintf(publish_buff, sizeof(publish_buff), "%.2f", liveData->Energy_Today);
-                mosquitto_publish(mosq, NULL, "solax/Energy_Today", strlen(publish_buff), publish_buff , 0, true);
+                publish_scaled("solax/Energy_Today", value, 1);
                 
                 value = (rxMessage.Data[4] << 8) | rxMessage.Data[5]; // PV1 Voltage [V]
-                liveData->DC1_Voltage = value * 0.1f;
+                liveData->DC1_Voltage = value * 0.1;
                 DEBUG_MESSAGE("Solax: LiveData.DC1_Voltage: %.1f V", liveData->DC1_Voltage);
-                snprintf(publish_buff, sizeof(publish_buff), "%.2f", liveData->DC1_Voltage);
-                mosquitto_publish(mosq, NULL, "solax/DC1_Voltage", strlen(publish_buff), publish_buff , 0, true);
+                publish_scaled("solax/DC1_Voltage", value, 1);
                 
                 value = (rxMessage.Data[6] << 8) | rxMessage.Data[7]; // PV2 Voltage [V]
-                liveData->DC2_Voltage = value * 0.1f;
+                liveData->DC2_Voltage = value * 0.1;
                 DEBUG_MESSAGE("Solax: LiveData.DC2_Voltage: %.1f V", liveData->DC2_Voltage);
-                snprintf(publish_buff, sizeof(publish_buff), "%.2f", liveData->DC2_Voltage);
-                mosquitto_publish(mosq, NULL, "solax/DC2_Voltage", strlen(publish_buff), publish_buff , 0, true);
+                publish_scaled("solax/DC2_Voltage", value, 1);
                 
                 value = (rxMessage.Data[8] << 8) | rxMessage.Data[9]; // PV1 Current [A]
-                liveData->DC1_Current = value * 0.1f;
+                liveData->DC1_Current = value * 0.1;
                 DEBUG_MESSAGE("Solax: LiveData.DC1_Current: %.1f A", liveData->DC1_Current);
-                snprintf(publish_buff, sizeof(publish_buff), "%.2f", liveData->DC1_Current);
-                mosquitto_publish(mosq, NULL, "solax/DC1_Current", strlen(publish_buff), publish_buff , 0, true);
+                publish_scaled("solax/DC1_Current", value, 1);
                 
                 value = (rxMessage.Data[10] << 8) | rxMessage.Data[11]; // PV2 Current [A]
-                liveData->DC2_Current = value * 0.1f;
+                liveData->DC2_Current = value * 0.1;
                 DEBUG_MESSAGE("Solax: LiveData.DC2_Current: %.1f A", liveData->DC2_Current);
-                snprintf(publish_buff, sizeof(publish_buff), "%.2f", liveData->DC2_Current);
-                mosquitto_publish(mosq, NULL, "solax/DC2_Current", strlen(publish_buff), publish_buff , 0, true);
+                publish_scaled("solax/DC2_Current", value, 1);
                 
                 value = (rxMessage.Data[12] << 8) | rxMessage.Data[13]; // AC Current [A]
-                liveData->AC_Current = value * 0.1f;
+                liveData->AC_Current = value * 0.1;
                 DEBUG_MESSAGE("Solax: LiveData.AC_Current: %.1f A", liveData->AC_Current);
-                snprintf(publish_buff, sizeof(publish_buff), "%.2f", liveData->AC_Current);
-                mosquitto_publish(mosq, NULL, "solax/AC_Current", strlen(publish_buff), publish_buff , 0, true);
+                publish_scaled("solax/AC_Current", value, 1);
                 
                 value = (rxMessage.Data[14] << 8) | rxMessage.Data[15]; // AC Voltage [V]
-                liveData->AC_Voltage = value * 0.1f;
+                liveData->AC_Voltage = value * 0.1;
                 DEBUG_MESSAGE("Solax: LiveData.AC_Voltage: %.1f V", liveData->AC_Voltage);
-                snprintf(publish_buff, sizeof(publish_buff), "%.2f", liveData->AC_Voltage);
-                mosquitto_publish(mosq, NULL, "solax/AC_Voltage", strlen(publish_buff), publish_buff , 0, true);
+                publish_scaled("solax/AC_Voltage", value, 1);
                 
                 value = (rxMessage.Data[16] << 8) | rxMessage.Data[17]; // AC Frequency [Hz]
-                liveData->Frequency = value * 0.01f;
+                liveData->Frequency = value * 0.01;
                 DEBUG_MESSAGE("Solax: LiveData.Frequency: %.2f Hz", liveData->Frequency);
-                snprintf(publish_buff, sizeof(publish_buff), "%.2f", liveData->Frequency);
-                mosquitto_publish(mosq, NULL, "solax/Frequency", strlen(publish_buff), publish_buff , 0, true);
+                publish_scaled("solax/Frequency", value, 2);
                 
                 value = (rxMessage.Data[18] << 8) | rxMessage.Data[19]; // AC Power [W]
                 liveData->Power = value;
                 DEBUG_MESSAGE("Solax: LiveData.Power: %.0f W", liveData->Power);
-                snprintf(publish_buff, sizeof(publish_buff), "%.2f", liveData->Power);
-                mosquitto_publish(mosq, NULL, "solax/Power", strlen(publish_buff), publish_buff , 0, true);
+                publish_scaled("solax/Power", value, 0);
                 
                 //value = (rxMessage.Data[20] << 8) | rxMessage.Data[21]; // Not Used
                 //DEBUG_MESSAGE("Solax: LiveData.Not_Used: %.1f kWh", value);
-                //snprintf(publish_buff, sizeof(publish_buff), "%u", value);
-                //mosquitto_publish(mosq, NULL, "solax/Not_Used", strlen(publish_buff), publish_buff , 0, true);
+                //publish_scaled("solax/Not_Used", value, 0);
                 
                 value = (rxMessage.Data[22] << 24) | (rxMessage.Data[23] << 16) | (rxMessage.Data[24] << 8) | rxMessage.Data[25]; // Energy Total [kWh]
-                if (value) {liveData->Energy_Total = value * 0.1f;}
+                if (value) {liveData->Energy_Total = value * 0.1;}
                 DEBUG_MESSAGE("Solax: LiveData.Energy_Total: %.1f kWh", liveData->Energy_Total);
-                snprintf(publish_buff, sizeof(publish_buff), "%.2f", liveData->Energy_Total);
-                mosquitto_publish(mosq, NULL, "solax/Energy_Total", strlen(publish_buff), publish_buff , 0, true);
+                publish_scaled("solax/Energy_Total", value, 1);
                 
                 value = (rxMessage.Data[26] << 24) | (rxMessage.Data[27] << 16) | (rxMessage.Data[28] << 8) | rxMessage.Data[29]; // Work Time Total [hour]
                 if (value) {liveData->Runtime_Total = value;}
                 DEBUG_MESSAGE("Solax: LiveData.Runtime_Total: %.0f h", liveData->Runtime_Total);
-                snprintf(publish_buff, sizeof(publish_buff), "%.2f", liveData->Runtime_Total);
-                mosquitto_publish(mosq, NULL, "solax/Runtime_Total", strlen(publish_buff), publish_buff , 0, true);
+                publish_scaled("solax/Runtime_Total", value, 0);
                 
                 value = (rxMessage.Data[30] << 8) | rxMessage.Data[31]; // Work mode [???]
                 liveData->Status = (uint8_t)value;
                 DEBUG_MESSAGE("Solax: LiveData.Status: %d", liveData->Status);
-                snprintf(publish_buff, sizeof(publish_buff), "%u", liveData->Status);
-                mosquitto_publish(mosq, NULL, "solax/Status", strlen(publish_buff), publish_buff , 0, true);
+                publish_scaled("solax/Status", liveData->Status, 0);
                 
                 //value = (rxMessage.Data[32] << 8) | rxMessage.Data[33]; // Grid voltage fault in 0.1V
                 //value = (rxMessage.Data[34] << 8) | rxMessage.Data[35]; // Gird frequency fault in 0.01Hz
@@ -950,7 +954,7 @@ int poll_HTTP_Server(void)
         len += sprintf(&response[len], "\r\n");
         len += solax_JsonPath(&response[len], &solax_LiveData);
 
-        ssize_t written = write(fd_sock_client, response, len);
+        ssize_t written = write(fd_sock_client, response, (size_t)len);  // len >= 0: sum of the sprintf() results
         if (written < 0)
         {
             ERROR_MESSAGE("Http: Error sending the response: %s", strerror(errno));
@@ -965,7 +969,7 @@ int poll_HTTP_Server(void)
 }
 
 
-int init_HTTP_Server(int port)
+int init_HTTP_Server(uint16_t port)
 {
     int error;
     int flags;
@@ -1013,20 +1017,16 @@ int init_Serial_Interface(char device[])
         return -1;
     }
     
-    // raw mode
-    tty.c_cflag = CLOCAL | CREAD;  // ignore modem controls
+    // Raw mode, 9600 bauds, 8N1: 8 data bits, no parity (no PARENB),
+    // 1 stop bit (no CSTOPB), no hardware flow control (no CRTSCTS)
+    tty.c_cflag = CLOCAL | CREAD | CS8;  // ignore modem controls, enable the receiver, 8-bit characters
     tty.c_iflag = 0;
     tty.c_oflag = 0;
     tty.c_lflag = 0;
-    
-    // baudrate 9600, 8 bits, no parity, 1 stop bit
-    cfsetospeed(&tty, (speed_t)B9600);
-    cfsetispeed(&tty, (speed_t)B9600);    
-    tty.c_cflag |= CS8;             // 8-bit characters
-    tty.c_cflag &= ~PARENB;         // no parity bit
-    tty.c_cflag &= ~CSTOPB;         // 1 stop bit
-    tty.c_cflag &= ~CRTSCTS;        // no hardware flowcontrol
-    
+
+    cfsetospeed(&tty, (speed_t)B9600);  // Only sets the speed bits
+    cfsetispeed(&tty, (speed_t)B9600);
+
     /* completely non-blocking read */
     tty.c_cc[VMIN] = 0;
     tty.c_cc[VTIME] = 0;
@@ -1070,7 +1070,7 @@ int init_mqtt()
 {   
     int error;
     int max_retries = 12; // Maximum number of connection retries
-    int retry_interval = 5; // Interval between connection retries in seconds
+    unsigned int retry_interval = 5; // Interval between connection retries in seconds, type expected by sleep()
 
     mosquitto_lib_init();
     mosq = mosquitto_new("solaXdtoMQTT", true, NULL);
@@ -1168,6 +1168,7 @@ int main(int argc, char* argv[])
     }
 
     int opt;
+    int value;  // Numeric option checked before being stored in a smaller type
     // Values given on the command line: pointers into argv, copied once after parsing
     const char* opt_server = NULL;
     const char* opt_login = NULL;
@@ -1212,7 +1213,12 @@ int main(int argc, char* argv[])
                 arg_TTY_Device = optarg;
                 break;
             case 'p':
-                arg_TCP_Port = atoi(optarg);
+                value = atoi(optarg);
+                if (value < 1 || value > 65535) {
+                    fprintf(stderr, "Error: Invalid HTTP port number\n");
+                    return EXIT_FAILURE;
+                }
+                arg_TCP_Port = (uint16_t)value;  // In range, checked above
                 break;
             case 'S':
                 opt_server = optarg;
@@ -1234,7 +1240,12 @@ int main(int argc, char* argv[])
                 arg_AV_Samples = atoi(optarg);
                 break;
             case 'a':
-                arg_InverterAddr = atoi(optarg);
+                value = atoi(optarg);
+                if (value < 0 || value > 255) {
+                    fprintf(stderr, "Error: Invalid inverter bus address (0 to 255)\n");
+                    return EXIT_FAILURE;
+                }
+                arg_InverterAddr = (uint8_t)value;  // In range, checked above
                 break;
             case 'l':
                 arg_LogFile = optarg;
