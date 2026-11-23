@@ -36,6 +36,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <signal.h>
+#include <stdatomic.h>
 #include <mosquitto.h>
 
 /*** Defines ********************************************************************************************/
@@ -160,20 +161,28 @@ struct mosquitto * mosq;
 
 // Set to 0 by the signal handler: a volatile sig_atomic_t, an integer type, not a bool
 volatile sig_atomic_t run = 1;
-volatile sig_atomic_t fd_stop_log = -1;  // Log file descriptor for the signal handler, -1 = no trace
+// Log file descriptor read by the signal handler, -1 = no trace: a lock-free atomic, so that the handler may read it
+atomic_int fd_stop_log = -1;
+_Static_assert(ATOMIC_INT_LOCK_FREE == 2, "fd_stop_log must be lock-free to be read by the signal handler");
 
 /*** Functions ******************************************************************************************/
 
-// Handler of the stop signals: SIGINT (Ctrl+C) and SIGTERM (systemctl stop)
+// Handler of the stop signals SIGINT (Ctrl+C) and SIGTERM (systemctl stop), and of SIGALRM for the forced exit
 void handle_stop(int sig) {
+    int saved_errno = errno;
     if (sig == SIGALRM) {
-        // Only write() is allowed in a signal handler: the trace has no timestamp
+        // Only async-signal-safe functions such as write() may be called here, not stdio or localtime(): the trace has no timestamp
         static const char msg[] = "[NOTE ] Main: Stop requested by signal, forced exit after timeout\n";
-        if (fd_stop_log != -1) write(fd_stop_log, msg, sizeof(msg) - 1);
+        int fd = fd_stop_log;
+        if (fd != -1) {
+            ssize_t written = write(fd, msg, sizeof(msg) - 1);
+            (void)written;  // Nothing to do if the trace fails: the program exits just below
+        }
         _exit(EXIT_SUCCESS); // Timeout elapsed while the program is still blocked in a call
     }
     run = 0;
     alarm(2); // 2 seconds timeout to exit through the normal path
+    errno = saved_errno;
 }
 
 void getDateTime(char dateTimeStr[])
