@@ -1045,6 +1045,21 @@ void close_mqtt()
 	mosquitto_disconnect(mosq);
 	mosquitto_destroy(mosq);
 	mosquitto_lib_cleanup();
+	mosq = NULL;  // Lets cleanup() know that there is no session left to close
+}
+
+// Single exit path of main(): closes everything opened after the log file, then the log file
+void cleanup(void)
+{
+    if (mosq != NULL) close_mqtt();
+    if (fd_sock_server != -1) { close(fd_sock_server); fd_sock_server = -1; }
+    if (fd_tty != -1) { close(fd_tty); fd_tty = -1; }
+    if (fp_log_file != NULL && fp_log_file != stderr)
+    {
+        fd_stop_log = -1;  // Before fclose(): the signal handler must not write to a closed or reused descriptor
+        fclose(fp_log_file);
+        fp_log_file = NULL;
+    }
 }
 
 int init_mqtt()
@@ -1079,15 +1094,55 @@ int init_mqtt()
             sleep(retry_interval);
         } else {
             ERROR_MESSAGE("Maximum retries reached: Exiting");
-            close_mqtt();
             return -1;
         }
     }
 
     // Stop requested before the connection was established
     NOTICE_MESSAGE("Init MQTT: Stop requested by signal during connection, exiting");
-    close_mqtt();
     return -1;
+}
+
+// Opens the serial port, the MQTT session and the HTTP server, then runs the main loop until a stop or an error.
+// Returns the exit code of the program. main() calls cleanup() afterwards, whatever the return path.
+int run_daemon(void)
+{
+    int error;
+    uint8_t index = 0;
+    Solax_LiveData_t liveData[MAX_INDEX_OF_LIVE_DATA + 1] = {0};
+
+    error = init_Serial_Interface(arg_TTY_Device);  // open COM-Port
+    if (error == -1) return EXIT_FAILURE;
+
+    error = init_mqtt();                            // connect to MQTT server
+    if (error == -1) return (run == 0) ? EXIT_SUCCESS : EXIT_FAILURE;  // stop requested during the connection: normal stop
+
+    error = init_HTTP_Server(arg_TCP_Port);         // open TCP-Listener
+    if (error == -1) return EXIT_FAILURE;
+
+    while (run != 0)
+    {
+        error = mosquitto_loop(mosq,0,1);  // No wait: sleep(1) alone sets the 1 second period of the loop
+        if (error != MOSQ_ERR_SUCCESS) {
+            ERROR_MESSAGE("MQTT client connection lost - Error Code: %d", error);
+            return EXIT_FAILURE;
+        }
+
+        error = solax_QueryHandle(&liveData[index]);
+        if (error == -1) return EXIT_FAILURE;
+
+        solax_LiveData_Average(liveData, index, MAX_INDEX_OF_LIVE_DATA);
+
+        index++;
+        if (index > MAX_INDEX_OF_LIVE_DATA) index = 0;
+
+        error = poll_HTTP_Server();
+        if (error == -1) return EXIT_FAILURE;
+
+        sleep(1);
+    }
+    NOTICE_MESSAGE("Main: Stop requested by signal, exiting");
+    return EXIT_SUCCESS;
 }
 
 /*** MAIN ******************************************************************************************/
@@ -1109,11 +1164,8 @@ int main(int argc, char* argv[])
     }
 
     int opt;
-    int error;
-    uint8_t index = 0;
     bool login_from_U = false;
     bool password_from_W = false;
-    Solax_LiveData_t liveData[MAX_INDEX_OF_LIVE_DATA + 1] = {0};
 
     if ((argc == 2) && (strcmp(argv[1], "--version") == 0))
     {
@@ -1234,37 +1286,7 @@ int main(int argc, char* argv[])
     INFO_MESSAGE("Main: LogLevel     : %d", arg_LogLevel    );
     INFO_MESSAGE("Main: TestMode     : %d", arg_TestMode    );
     
-    error = init_Serial_Interface(arg_TTY_Device);  // open COM-Port
-    if (error == -1) return EXIT_FAILURE;
-    
-    error = init_mqtt();                            // connect to MQTT server
-    if (error == -1) return (run == 0) ? EXIT_SUCCESS : EXIT_FAILURE;  // stop requested during the connection: normal stop
-
-    error = init_HTTP_Server(arg_TCP_Port);         // open TCP-Listener
-    if (error == -1) return EXIT_FAILURE;
-    
-    while (run != 0)
-    {
-        error = mosquitto_loop(mosq,0,1);  // No wait: sleep(1) alone sets the 1 second period of the loop
-        if (error != MOSQ_ERR_SUCCESS) {
-            ERROR_MESSAGE("MQTT client connection lost - Error Code: %d", error);
-            return EXIT_FAILURE;
-        }
-
-        error = solax_QueryHandle(&liveData[index]);
-        if (error == -1) return EXIT_FAILURE;
-        
-        solax_LiveData_Average(liveData, index, MAX_INDEX_OF_LIVE_DATA);
-        
-        index++;
-        if (index > MAX_INDEX_OF_LIVE_DATA) index = 0;
-        
-        error = poll_HTTP_Server();
-        if (error == -1) return EXIT_FAILURE;
-                
-        sleep(1);
-    }
-    NOTICE_MESSAGE("Main: Stop requested by signal, exiting");
-    close_mqtt();
-    return EXIT_SUCCESS;
+    int exit_code = run_daemon();  // Every return of run_daemon() goes through cleanup()
+    cleanup();
+    return exit_code;
 }
