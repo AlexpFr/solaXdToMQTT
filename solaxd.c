@@ -71,7 +71,7 @@
 #define TOPIC_DAEMON_ONLINE        "solax/daemon_online"  // solaxd running and connected; "offline" is also the last will
 #define TOPIC_INVERTER_ONLINE      "solax/inverter_online" // the inverter answers on the RS485 bus
 #define MQTT_STATE_QOS             1
-#define MQTT_OFFLINE_ACK_TIMEOUT   10                     // wait for the broker to acknowledge "offline" when stopping (in 100 ms steps)
+#define MQTT_OFFLINE_ACK_TIMEOUT   1000L                  // wait for the broker to acknowledge "offline" when stopping (in milliseconds)
 
 /*** Macros ********************************************************************************************/
 
@@ -1115,22 +1115,39 @@ void serial_lost(void)
     }
 }
 
+// Milliseconds elapsed since *start, on the monotonic clock
+long elapsed_ms(const struct timespec* start)
+{
+	struct timespec now;
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	return (now.tv_sec - start->tv_sec) * 1000L + (now.tv_nsec - start->tv_nsec) / 1000000L;
+}
+
 void close_mqtt()
 {
 	// A clean disconnection cancels the last will: "offline" is published here, and the broker is given up to 1 s to acknowledge it
+	int error = MOSQ_ERR_SUCCESS;
 	if (mqtt_connected) {
 		int mid;
 		mqtt_offline_acked = false;
-		if (mosquitto_publish(mosq, &mid, TOPIC_DAEMON_ONLINE, 7, "offline", MQTT_STATE_QOS, true) == MOSQ_ERR_SUCCESS) {
+		error = mosquitto_publish(mosq, &mid, TOPIC_DAEMON_ONLINE, 7, "offline", MQTT_STATE_QOS, true);
+		if (error == MOSQ_ERR_SUCCESS) {
 			mqtt_offline_mid = mid;
-			for (int i = 0; i < MQTT_OFFLINE_ACK_TIMEOUT && !mqtt_offline_acked; ++i) {
-				if (mosquitto_loop(mosq, 100, 1) != MOSQ_ERR_SUCCESS) break;
+			// The time is measured rather than the calls counted: each message queued by libmosquitto also wakes its loop up
+			// through an internal socket pair, and each call reads one wake-up only. After the live data messages,
+			// mosquitto_loop() therefore returns at once many times before it waits for the acknowledgement.
+			struct timespec start;
+			clock_gettime(CLOCK_MONOTONIC, &start);
+			while (!mqtt_offline_acked && elapsed_ms(&start) < MQTT_OFFLINE_ACK_TIMEOUT) {
+				error = mosquitto_loop(mosq, 100, 1);
+				if (error != MOSQ_ERR_SUCCESS) break;
 			}
 		}
 	}
 	if (mqtt_connected && !mqtt_offline_acked) {
 		// No DISCONNECT: the connection is closed without it, so that the broker publishes the last will instead
-		NOTICE_MESSAGE("MQTT: \"offline\" not acknowledged by the broker, left to the last will");
+		NOTICE_MESSAGE("MQTT: \"offline\" not acknowledged by the broker (%s), left to the last will",
+		               (error == MOSQ_ERR_SUCCESS) ? "no answer" : (error == MOSQ_ERR_ERRNO) ? strerror(errno) : mosquitto_strerror(error));
 	} else {
 		mosquitto_disconnect(mosq);
 	}
@@ -1201,8 +1218,10 @@ Mqtt_Attempt_t mqtt_connect_once(const char** reason)
         return MQTT_RETRY;
     }
 
-    // 100 ms steps: mosquitto_loop() returns as soon as the answer has been read
-    for (int j = 0; j < MQTT_CONNACK_TIMEOUT * 10 && mqtt_connack == -1 && run != 0; ++j) {
+    // The time is measured rather than the calls counted: mosquitto_loop() may return at once (see close_mqtt())
+    struct timespec start;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    while (mqtt_connack == -1 && run != 0 && elapsed_ms(&start) < MQTT_CONNACK_TIMEOUT * 1000L) {
         error = mosquitto_loop(mosq, 100, 1);
         if (error != MOSQ_ERR_SUCCESS) break;  // A refusal is also reported here, after on_connect() has set mqtt_connack
     }
