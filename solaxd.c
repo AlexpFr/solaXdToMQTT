@@ -554,7 +554,7 @@ Solax_ErrorQuery_t solax_ReceiveQuery(const Solax_StateQuery_t stateQuery, Solax
                 liveData->Energy_Today = value * 0.1f;
                 DEBUG_MESSAGE("Solax: LiveData.Energy_Today: %.1f kWh", liveData->Energy_Today);
                 snprintf(publish_buff, sizeof(publish_buff), "%.2f", liveData->Energy_Today);
-                mosquitto_publish(mosq, NULL, "solax/energy_Today", strlen(publish_buff), publish_buff , 0, true);
+                mosquitto_publish(mosq, NULL, "solax/Energy_Today", strlen(publish_buff), publish_buff , 0, true);
                 
                 value = (rxMessage.Data[4] << 8) | rxMessage.Data[5]; // PV1 Voltage [V]
                 liveData->DC1_Voltage = value * 0.1f;
